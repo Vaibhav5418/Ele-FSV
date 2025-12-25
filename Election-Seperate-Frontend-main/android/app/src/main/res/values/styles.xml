@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- App theme used by the application -->
+    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Prevent fullscreen -->
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:fitsSystemWindows">true</item>
+
+        <!-- Optional system bar colors -->
+        <item name="android:statusBarColor" tools:targetApi="l">?attr/colorPrimaryVariant</item>
+        <item name="android:navigationBarColor" tools:targetApi="o">?attr/colorPrimary</item>
+    </style>
+
+    <!-- Launch theme referenced by AndroidManifest for splash/no-action-bar -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Prevent fullscreen on launch -->
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:fitsSystemWindows">true</item>
+
+        <!-- Capacitor/Android 12+ system splash background color -->
+        <item name="android:windowBackground">@color/splashscreen_background</item>
+    </style>
+</resources>

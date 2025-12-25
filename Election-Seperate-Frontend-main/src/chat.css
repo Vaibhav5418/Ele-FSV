@@ -1,0 +1,87 @@
+  
+  .chatbot-messages {
+    /* max-height: 70vh;  */
+    overflow-y: auto;
+    padding: 10px;
+  }
+  .message {
+    margin-bottom: 10px;
+    padding: 5px 10px;
+    border-radius: 5px;
+  }
+  
+  .bot {
+    background-color: #f0f0f0;
+  }
+  
+  .user {
+    background-color: #e3f2fd;
+  }
+  
+  .chatbot-input-form {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+  }
+  
+  .chatbot-input-form input {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 20px;
+    margin-right: 10px;
+    box-sizing: border-box; /* Include padding and border in the width */
+  }
+  
+  .chatbot-input-form button {
+    padding: 8px 15px;
+    border: none;
+    background-color: #007bff;
+    color: #fff;
+    border-radius: 20px;
+    cursor: pointer;
+  }
+  
+  .chatbot-input-form button:hover {
+    background-color: #0056b3;
+  }
+  
+  body {
+    margin: 0; /* Remove default margin */
+    padding: 0; /* Remove default padding */
+    
+  }
+  
+  .chatbot-page-container {
+    width: 80%; /* Adjust width as needed */
+    max-width: 1200px;
+    height: 90vh; /* Adjust height using viewport height units */
+    max-height: 90vh; /* Set maximum height using viewport height units */
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    overflow: hidden;
+    margin: auto; /* Center the chatbot container */
+    
+  }
+  
+  @keyframes typing {
+    0% {
+      width: 0;
+    }
+    50% {
+      width: 20px;
+    }
+    100% {
+      width: 0;
+    }
+  }
+  
+  .typing-animation::after {
+    content: '|';
+    display: inline-block;
+    animation: typing 1s infinite;
+  }
+  
+  
+  /* Rest of the CSS remains the same */
+  
