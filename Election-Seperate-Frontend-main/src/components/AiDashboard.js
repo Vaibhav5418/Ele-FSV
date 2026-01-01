@@ -210,7 +210,7 @@ const AiDashboard = () => {
     try {
       // Fetch minute-wise data for today's date from the provided API
       const response = await axios.post(
-        "https://ai-analytics-election-igrgh.ondigitalocean.app/api/getprcount",
+        `${process.env.REACT_APP_AI_ANALYTICS_BASE_URL}/getprcount`,
         {
           state: "GOA",
         }
@@ -310,7 +310,7 @@ const AiDashboard = () => {
     try {
       // Fetch minute-wise data for today's date from the provided API
       const response = await axios.post(
-        "https://ai-analytics-election-igrgh.ondigitalocean.app/api/getprcountdistrict",
+        `${process.env.REACT_APP_AI_ANALYTICS_BASE_URL}/getprcountdistrict`,
         {
           state: "GOA",
         }

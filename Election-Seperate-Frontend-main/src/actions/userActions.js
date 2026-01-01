@@ -4,7 +4,7 @@ import axios from 'axios';
 // const baseURL = 'https://seahorse-app-2-3o2pf.ondigitalocean.app/election';
 // const baseURL = 'http://192.168.29.123:7073/election';
 // const baseURL = 'https://esp.vmukti.com/backend/election';
-const baseURL = process.env.REACT_APP_URL;
+const baseURL = process.env.REACT_APP_API_URL;
 
 const instance = axios.create({
   baseURL: baseURL
@@ -119,7 +119,7 @@ export const getAiData = async (page, district, assembly, psNo, location, HC) =>
   console.log(district, assembly)
   try {
     // const params = { deviceId: deviceId };
-    const response = await axios.post('https://ai-analytics-election-igrgh.ondigitalocean.app/api/get-ai-data', {
+    const response = await axios.post(`${process.env.REACT_APP_AI_ANALYTICS_BASE_URL}/get-ai-data`, {
       modelname: 'Crowd',
       pageNumber: page,
       district: district,
@@ -144,7 +144,7 @@ export const sendQueryToBackend = async (input) => {
   try {
     console.log(input)
     // Make a POST request to the backend API with the user query
-    const response = await axios.post('http://192.168.29.212:443/query', { query: input });
+    const response = await axios.post(process.env.REACT_APP_QUERY_URL, { query: input });
 
     // Return the bot response from the backend
     return response.data.agent;
@@ -159,7 +159,7 @@ export const chatHistory = async () => {
   try {
     console.log("surekha");
     // Make a GET request to the backend API with the user query
-    const response = await axios.get('http://192.168.29.212:443/export')
+    const response = await axios.get(process.env.REACT_APP_EXPORT_URL)
 
     // Return the response from the backend
     console.log(response)
@@ -725,7 +725,7 @@ export const getAiMap = async (date, time) => {
   try {
     // console.log(mobile);
     // const params = { date: date, time: time };
-    const response = await axios.get('http://192.168.29.151:3000/api/get-goa-data', {
+    const response = await axios.get(process.env.REACT_APP_GOA_DATA_URL, {
       // params: params
     });
     return response.data;

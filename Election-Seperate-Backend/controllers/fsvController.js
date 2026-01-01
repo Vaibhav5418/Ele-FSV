@@ -18,7 +18,7 @@ if (!global.crypto) {
 }
 
 // Azure Connection String (Should ideally be in process.env)
-const AZURE_STORAGE_CONNECTION_STRING = "BlobEndpoint=https://nvrdatashinobi.blob.core.windows.net/;QueueEndpoint=https://nvrdatashinobi.queue.core.windows.net/;FileEndpoint=https://nvrdatashinobi.file.core.windows.net/;TableEndpoint=https://nvrdatashinobi.table.core.windows.net/;SharedAccessSignature=sv=2024-11-04&ss=bfqt&srt=sco&sp=rwdlacupiytfx&se=2025-12-30T21:10:43Z&st=2025-10-09T12:55:43Z&spr=https,http&sig=AZlK%2F0VWAm1FnPgSR%2BvHal%2BHcmqknAOE%2FDk4jhvHhAw%3D";
+const AZURE_STORAGE_CONNECTION_STRING = process.env.AZURE_STORAGE_CONNECTION_STRING;
 const CONTAINER_NAME = "fsv-photos"; // Ensure this container exists or create it
 
 const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
