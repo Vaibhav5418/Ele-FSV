@@ -39,6 +39,8 @@
 
 
 const express = require('express');
+require('dotenv').config({ path: './config/config.env' });
+console.log("AZURE_CONN_STRING:", process.env.AZURE_STORAGE_CONNECTION_STRING ? "Loaded" : "Not Loaded");
 const cors = require('cors');
 const morgan = require('morgan');
 const multer = require('multer');
@@ -51,9 +53,7 @@ const app = express();
 const port = 8080;
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
-// if (process.env.NODE_ENV !== 'production') {
-require('dotenv').config({ path: './config/config.env' });
-// }
+// require('dotenv').config({ path: './config/config.env' });
 
 connectDatabase(); // Connect to the database
 
