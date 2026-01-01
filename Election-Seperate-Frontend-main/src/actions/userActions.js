@@ -4,7 +4,7 @@ import axios from 'axios';
 // const baseURL = 'https://seahorse-app-2-3o2pf.ondigitalocean.app/election';
 // const baseURL = 'http://192.168.29.123:7073/election';
 // const baseURL = 'https://esp.vmukti.com/backend/election';
-const baseURL = 'http://localhost:8080/election';
+const baseURL = process.env.REACT_APP_URL;
 
 const instance = axios.create({
   baseURL: baseURL
