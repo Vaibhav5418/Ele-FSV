@@ -3,11 +3,13 @@ const mongoose = require('mongoose');
 const fstMemberSchema = new mongoose.Schema({
     fstName: {
         type: String,
-        required: true
+        required: false,
+        default: ''
     },
     fstMobileNo: {
         type: String,
-        required: true
+        required: false,
+        default: ''
     }
 }, { timestamps: true });
 

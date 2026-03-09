@@ -1,5 +1,5 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import axios from 'axios';
 import {
   Box,
   Button,
@@ -25,17 +25,14 @@ import {
 } from '@chakra-ui/react';
 import Webcam from 'react-webcam';
 import { uploadFsvPhotos } from '../actions/userActions';
-import { FaCamera, FaRedo, FaFilePdf } from 'react-icons/fa';
-import jsPDF from 'jspdf';
+import { FaCamera, FaRedo } from 'react-icons/fa';
 import html2canvas from 'html2canvas';
 
-const FsvPhotoUpload = ({ vehicleId, formData, onUploadComplete }) => {
+const FsvPhotoUpload = ({ vehicleId, formData, location, address, onUploadComplete }) => {
   const toast = useToast();
-  const navigate = useNavigate();
   const [photos, setPhotos] = useState({
     vehiclePhoto: null,
-    driverPhoto: null,
-    serviceProviderPhoto: null
+    localScreenPhoto: null
   });
   const [streamScreenshot, setStreamScreenshot] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -44,6 +41,28 @@ const FsvPhotoUpload = ({ vehicleId, formData, onUploadComplete }) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const webcamRef = useRef(null);
   const previewRef = useRef(null);
+  const [geoAddress, setGeoAddress] = useState(address || "");
+
+  // Fetch address internally if prop is missing but coordinates exist
+  useEffect(() => {
+    if (address) {
+      setGeoAddress(address);
+    } else if (location?.latitude && location?.longitude) {
+      const fetchAddr = async () => {
+        try {
+          const response = await axios.get(
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${location.latitude},${location.longitude}&key=AIzaSyBNBVfpAQqikexY-8J0QDyBR4bWKiKe`
+          );
+          if (response.data.results?.[0]) {
+            setGeoAddress(response.data.results[0].formatted_address);
+          }
+        } catch (error) {
+          console.error("Internal Geocode Error:", error);
+        }
+      };
+      fetchAddr();
+    }
+  }, [address, location]);
 
   const videoConstraints = {
     width: 720,
@@ -51,35 +70,117 @@ const FsvPhotoUpload = ({ vehicleId, formData, onUploadComplete }) => {
     facingMode: "environment"
   };
 
+  const drawWatermark = (canvas) => {
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+
+    // Watermark settings
+    const fontSize = Math.max(12, Math.floor(width / 30)); // Dynamic font size
+    ctx.font = `bold ${fontSize}px Helvetica`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+
+    const lat = location?.latitude ? Number(location.latitude).toFixed(6) : "N/A";
+    const long = location?.longitude ? Number(location.longitude).toFixed(6) : "N/A";
+    const timestamp = new Date().toLocaleString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+
+    const lines = [
+      `Lat: ${lat}`,
+      `Long: ${long}`,
+      timestamp
+    ];
+
+    // Add address lines with wrapping
+    const displayAddress = geoAddress || address;
+    if (displayAddress) {
+      const maxWidth = width * 0.45; // Take up to 45% of canvas width
+      const words = String(displayAddress).split(' ');
+      let currentLine = '';
+
+      words.forEach(word => {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && currentLine) {
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+      });
+      if (currentLine) lines.push(currentLine);
+    }
+
+    const padding = 15;
+    let yDelta = fontSize + 5;
+    let y = padding;
+
+    lines.forEach(line => {
+      // Draw shadow for readability on any background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillText(line, width - padding + 1, y + 1);
+
+      // Draw white text
+      ctx.fillStyle = 'white';
+      ctx.fillText(line, width - padding, y);
+
+      y += yDelta;
+    });
+  };
+
   const capture = useCallback(() => {
     const imageSrc = webcamRef.current.getScreenshot();
     if (imageSrc) {
-        // Convert base64 to blob
-        fetch(imageSrc)
-        .then(res => res.blob())
-        .then(blob => {
-            const file = new File([blob], `${currentField}.jpg`, { type: "image/jpeg" });
-            setPhotos(prev => ({ ...prev, [currentField]: file }));
-            onClose();
-        });
+      const img = new window.Image();
+      img.src = imageSrc;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        // Apply watermark
+        drawWatermark(canvas);
+
+        canvas.toBlob((blob) => {
+          const file = new File([blob], `${currentField}.jpg`, { type: "image/jpeg" });
+          setPhotos(prev => ({ ...prev, [currentField]: file }));
+          onClose();
+        }, 'image/jpeg', 0.9);
+      };
     }
-  }, [webcamRef, currentField, onClose]);
+  }, [webcamRef, currentField, onClose, location, geoAddress, address]);
 
   const openCamera = (fieldName) => {
-      setCurrentField(fieldName);
-      onOpen();
+    setCurrentField(fieldName);
+    onOpen();
   };
 
   const captureStreamScreenshot = async () => {
-    // Find the stream video element (you may need to adjust the selector)
     const streamElement = document.querySelector('video') || document.querySelector('iframe');
     if (streamElement) {
       try {
-        const canvas = await html2canvas(streamElement);
+        const canvas = await html2canvas(streamElement, {
+          useCORS: true,
+          logging: false
+        });
+
+        // Apply watermark
+        drawWatermark(canvas);
+
         canvas.toBlob((blob) => {
           const file = new File([blob], 'stream-screenshot.jpg', { type: "image/jpeg" });
           setStreamScreenshot(file);
-        });
+        }, 'image/jpeg', 0.9);
       } catch (error) {
         console.error('Error capturing stream screenshot:', error);
       }
@@ -92,212 +193,12 @@ const FsvPhotoUpload = ({ vehicleId, formData, onUploadComplete }) => {
     setShowPreview(true);
   };
 
-  const generatePDF = async () => {
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 15;
-    let yPos = 20;
-
-    // Helper function to draw table cell
-    const drawCell = (x, y, width, height, text, isBold = false) => {
-      pdf.rect(x, y, width, height);
-      pdf.setFont('helvetica', isBold ? 'bold' : 'normal');
-      pdf.setFontSize(9);
-      const lines = pdf.splitTextToSize(text, width - 4);
-      pdf.text(lines, x + 2, y + 5);
-    };
-
-    // VMukti Logo/Header
-    pdf.setFontSize(16);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('VMukti', pageWidth / 2, yPos, { align: 'center' });
-    yPos += 10;
-
-    // Title
-    pdf.setFontSize(11);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('TARN TARAN BYE ELECTION - FSV 2025', pageWidth / 2, yPos, { align: 'center' });
-    yPos += 5;
-    pdf.text('INSTALLATION REPORT OF FLYING SQUAD VEHICLE', pageWidth / 2, yPos, { align: 'center' });
-    yPos += 8;
-
-    // Basic Information Section (2 columns)
-    const col1Width = (pageWidth - 2 * margin) / 2;
-    const col2Width = (pageWidth - 2 * margin) / 2;
-    const rowHeight = 8;
-
-    // Row 1: District Name | AC Name
-    drawCell(margin, yPos, col1Width, rowHeight, `District Name: ${formData?.districtName || ''}`, true);
-    drawCell(margin + col1Width, yPos, col2Width, rowHeight, `AC Name: ${formData?.acName || ''}`, true);
-    yPos += rowHeight;
-
-    // Row 2: Vehicle No | Installation Date
-    drawCell(margin, yPos, col1Width, rowHeight, `Vehicle No: ${formData?.vehicleNo || ''}`, true);
-    drawCell(margin + col1Width, yPos, col2Width, rowHeight, `Installation Date: ${formData?.installationDate || ''}`, true);
-    yPos += rowHeight;
-
-    // Row 3: Driver Name | Installation Site & Address
-    drawCell(margin, yPos, col1Width, rowHeight, `Driver Name: ${formData?.driverName || ''}`, true);
-    drawCell(margin + col1Width, yPos, col2Width, rowHeight, `Installation Site & Address: ${formData?.installationSiteAddress || ''}`, true);
-    yPos += rowHeight;
-
-    // Row 4: Driver Mobile No | Type of Vehicle
-    drawCell(margin, yPos, col1Width, rowHeight, `Driver Mobile No: ${formData?.driverMobileNo || ''}`, true);
-    drawCell(margin + col1Width, yPos, col2Width, rowHeight, `Type of Vehicle: ${formData?.typeOfVehicle || ''}`, true);
-    yPos += rowHeight;
-
-    // Row 5: FST Name | FST Mobile No
-    drawCell(margin, yPos, col1Width, rowHeight, `FST Name: ${formData?.fstName || ''}`, true);
-    drawCell(margin + col1Width, yPos, col2Width, rowHeight, `FST Mobile No: ${formData?.fstMobileNo || ''}`, true);
-    yPos += rowHeight;
-
-    yPos += 3;
-
-    // Equipment Table Header
-    const descWidth = (pageWidth - 2 * margin) * 0.5;
-    const serialWidth = (pageWidth - 2 * margin) * 0.3;
-    const installedWidth = (pageWidth - 2 * margin) * 0.2;
-
-    drawCell(margin, yPos, descWidth, rowHeight, 'DESCRIPTION', true);
-    drawCell(margin + descWidth, yPos, serialWidth, rowHeight, 'SERIAL NO', true);
-    drawCell(margin + descWidth + serialWidth, yPos, installedWidth, rowHeight, 'INSTALLED YES/NO', true);
-    yPos += rowHeight;
-
-    // Equipment rows
-    const equipment = [
-      ['PTZ Camera Model number', formData?.ptzCameraModelNumber || '', ''],
-      ['PTZ Camera Serial number', formData?.ptzCameraSerialNumber || '', ''],
-      ['PTZ Camera installed on the vehicle', '', formData?.ptzCameraInstalledOnVehicle || 'No'],
-      ['NVR Model No', formData?.nvrModelNo || '', ''],
-      ['NVR Installed', '', formData?.nvrInstalled || 'No'],
-      ['Battery Serial No.', formData?.batterySerialNo || '', ''],
-      ['Battery installed at Vehicle', '', formData?.batteryInstalledAtVehicle || 'No'],
-      ['Backside LCD Installed', '', formData?.backsideLCDInstalled || 'No'],
-      ['GPS Device Serial No', formData?.gpsDeviceSerialNo || '', ''],
-      ['GPS Device installed', '', formData?.gpsDeviceInstalled || 'No'],
-      ['DC/AC Converter Installed', '', formData?.dcAcConverterInstalled || 'No'],
-      ['Internet 4G Router installed back site', '', formData?.internet4GRouterInstalledBackSite || 'No'],
-      ['Internet 4G Router SIM No.', formData?.internet4GRouterSimNo || '', ''],
-      ['Electrical Power strip Installed', '', formData?.electricalPowerStripInstalled || 'No'],
-      ['Training to Driver & FST Member', '', formData?.trainingToDriverAndFSTMember || 'No'],
-      ['Successful Test Web-Streaming', '', formData?.successfulTestWebStreaming || 'No']
-    ];
-
-    equipment.forEach(([desc, serial, installed]) => {
-      if (yPos > pageHeight - 20) {
-        pdf.addPage();
-        yPos = 20;
-      }
-      drawCell(margin, yPos, descWidth, rowHeight, desc);
-      drawCell(margin + descWidth, yPos, serialWidth, rowHeight, serial);
-      drawCell(margin + descWidth + serialWidth, yPos, installedWidth, rowHeight, installed);
-      yPos += rowHeight;
-    });
-
-    yPos += 3;
-
-    // Note section
-    pdf.setFontSize(8);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Note:', margin, yPos);
-    pdf.setFont('helvetica', 'normal');
-    const noteText = 'Henceforth, the equipment shall be in the custody of concerned Driver and Flying squad team members. They shall ensure no damage is done to the equipment';
-    const noteLines = pdf.splitTextToSize(noteText, pageWidth - 2 * margin - 10);
-    pdf.text(noteLines, margin + 10, yPos);
-    yPos += noteLines.length * 4 + 5;
-
-    // Photos Section (New Page)
-    pdf.addPage();
-    yPos = 20;
-
-    pdf.setFontSize(14);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Installation Photos', pageWidth / 2, yPos, { align: 'center' });
-    yPos += 10;
-
-    // Add photos in grid (2 columns)
-    const photoLabels = {
-      vehiclePhoto: 'Vehicle Photo',
-      driverPhoto: 'Driver Photo',
-      serviceProviderPhoto: 'Service Provider Photo'
-    };
-
-    const imgWidth = 80;
-    const imgHeight = 60;
-    const imgSpacing = 10;
-    let xPos = margin;
-    let photoCount = 0;
-
-    for (const [key, label] of Object.entries(photoLabels)) {
-      if (photos[key]) {
-        if (yPos > pageHeight - imgHeight - 20) {
-          pdf.addPage();
-          yPos = 20;
-          xPos = margin;
-          photoCount = 0;
-        }
-
-        pdf.setFontSize(10);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text(label, xPos, yPos);
-
-        try {
-          const imgData = await fileToBase64(photos[key]);
-          pdf.addImage(imgData, 'JPEG', xPos, yPos + 3, imgWidth, imgHeight);
-        } catch (error) {
-          console.error(`Error adding ${label}:`, error);
-        }
-
-        photoCount++;
-        if (photoCount % 2 === 0) {
-          yPos += imgHeight + imgSpacing + 5;
-          xPos = margin;
-        } else {
-          xPos = margin + imgWidth + imgSpacing;
-        }
-      }
-    }
-
-    // Add stream screenshot
-    if (streamScreenshot) {
-      if (photoCount % 2 !== 0 || yPos > pageHeight - imgHeight - 20) {
-        yPos += imgHeight + imgSpacing + 5;
-        xPos = margin;
-      }
-
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Stream Screenshot', xPos, yPos);
-
-      try {
-        const imgData = await fileToBase64(streamScreenshot);
-        pdf.addImage(imgData, 'JPEG', xPos, yPos + 3, imgWidth, imgHeight);
-      } catch (error) {
-        console.error('Error adding stream screenshot:', error);
-      }
-    }
-
-    // Save PDF with driver name and vehicle number
-    const fileName = `${formData?.driverName?.replace(/\s+/g, '_') || 'Driver'}_${formData?.vehicleNo?.replace(/\s+/g, '_') || 'Vehicle'}_FSV_Report.pdf`;
-    pdf.save(fileName);
-  };
-
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = error => reject(error);
-    });
-  };
-
   const uploadPhotos = async () => {
     if (!vehicleId) {
-        toast({ title: "Error", description: "Vehicle ID missing", status: "error" });
-        return;
+      toast({ title: "Error", description: "Vehicle ID missing", status: "error" });
+      return;
     }
-    
+
     setIsUploading(true);
     const data = new FormData();
     let hasFiles = false;
@@ -308,67 +209,99 @@ const FsvPhotoUpload = ({ vehicleId, formData, onUploadComplete }) => {
       }
     });
 
+    // Add stream screenshot if captured
+    if (streamScreenshot) {
+      data.append('streamScreenshot', streamScreenshot);
+      hasFiles = true;
+    }
+
     if (!hasFiles) {
-        toast({ title: "No photos captured", status: "warning" });
-        setIsUploading(false);
-        return;
+      toast({ title: "No photos captured", status: "warning" });
+      setIsUploading(false);
+      return;
     }
 
     try {
-      // Generate and download PDF
-      await generatePDF();
-      
       // Upload photos to backend
       const response = await uploadFsvPhotos(vehicleId, data);
       if (response.success) {
-        toast({ title: "Photos Uploaded & PDF Downloaded Successfully", status: "success" });
+        toast({ title: "Photos Uploaded Successfully", status: "success" });
         if (onUploadComplete) onUploadComplete();
-        window.location.href = '/';
       } else {
         toast({ title: "Upload Failed", description: response.message, status: "error" });
       }
     } catch (error) {
       toast({ title: "Error", description: error.message, status: "error" });
     } finally {
-        setIsUploading(false);
+      setIsUploading(false);
     }
   };
 
   const renderPhotoField = (label, name) => (
-      <FormControl>
-          <FormLabel>{label}</FormLabel>
-          <Box 
-            border="2px dashed #ccc" 
-            borderRadius="md" 
-            p={4} 
-            textAlign="center" 
-            cursor="pointer"
-            onClick={() => openCamera(name)}
-            bg={photos[name] ? "green.50" : "gray.50"}
-            _hover={{ bg: "gray.100" }}
-          >
-              {photos[name] ? (
-                  <VStack>
-                      <Image src={URL.createObjectURL(photos[name])} alt={label} boxSize="100px" objectFit="cover" borderRadius="md" />
-                      <Button size="xs" leftIcon={<FaRedo />} colorScheme="blue" variant="outline">Retake</Button>
-                  </VStack>
-              ) : (
-                  <VStack>
-                      <FaCamera size={24} color="#718096" />
-                      <Box fontSize="sm" color="gray.500">Tap to Capture</Box>
-                  </VStack>
-              )}
-          </Box>
-      </FormControl>
+    <FormControl>
+      <FormLabel fontWeight="bold" color="gray.700" mb={2}>{label}</FormLabel>
+      <Box
+        border="2px dashed"
+        borderColor="gray.300"
+        borderRadius="xl"
+        p={6}
+        textAlign="center"
+        cursor="pointer"
+        onClick={() => openCamera(name)}
+        bg={photos[name] ? "green.50" : "gray.50"}
+        transition="all 0.2s"
+        _hover={{
+          bg: "gray.100",
+          borderColor: "blue.400",
+          transform: "translateY(-2px)",
+          boxShadow: "md"
+        }}
+        height="180px"
+        display="flex"
+        flexDirection="column"
+        justifyContent="center"
+        alignItems="center"
+      >
+        {photos[name] ? (
+          <VStack spacing={3}>
+            <Image
+              src={URL.createObjectURL(photos[name])}
+              alt={label}
+              boxSize="100px"
+              objectFit="cover"
+              borderRadius="lg"
+              boxShadow="sm"
+            />
+            <Button size="xs" leftIcon={<FaRedo />} colorScheme="blue" variant="outline" borderRadius="full">Retake</Button>
+          </VStack>
+        ) : (
+          <VStack spacing={2}>
+            <Box p={3} bg="white" borderRadius="full" boxShadow="sm">
+              <FaCamera size={24} color="#718096" />
+            </Box>
+            <Box fontSize="sm" color="gray.600" fontWeight="medium">Tap to Capture</Box>
+          </VStack>
+        )}
+      </Box>
+    </FormControl>
   );
 
   if (showPreview) {
     return (
-      <Box mt={8} p={5} borderWidth="1px" borderRadius="lg" bg="white" ref={previewRef}>
-        <Heading size="lg" mb={6} textAlign="center">FSV Installation Report Preview</Heading>
-        
+      <Box
+        mt={8}
+        p={6}
+        borderWidth="1px"
+        borderColor="gray.100"
+        borderRadius="2xl"
+        bg="white"
+        ref={previewRef}
+        boxShadow="xl"
+      >
+        <Heading size="lg" mb={6} textAlign="center" color="gray.700">FSV Installation Report Preview</Heading>
+
         {/* Form Data Preview */}
-        <Box mb={6}>
+        <Box mb={6} bg="gray.50" p={4} borderRadius="xl">
           <Heading size="md" mb={4} color="blue.600">Vehicle & Installation Details</Heading>
           <Grid templateColumns="repeat(2, 1fr)" gap={3}>
             <GridItem><Text><strong>District:</strong> {formData?.districtName}</Text></GridItem>
@@ -378,19 +311,19 @@ const FsvPhotoUpload = ({ vehicleId, formData, onUploadComplete }) => {
             <GridItem><Text><strong>Site Address:</strong> {formData?.installationSiteAddress}</Text></GridItem>
             <GridItem><Text><strong>Driver Name:</strong> {formData?.driverName}</Text></GridItem>
             <GridItem><Text><strong>Driver Mobile:</strong> {formData?.driverMobileNo}</Text></GridItem>
-            <GridItem><Text><strong>FST Name:</strong> {formData?.fstName}</Text></GridItem>
-            <GridItem><Text><strong>FST Mobile:</strong> {formData?.fstMobileNo}</Text></GridItem>
+            <GridItem><Text><strong>FST Incharge Name:</strong> {formData?.fstName}</Text></GridItem>
+            <GridItem><Text><strong>FST Mobile No.:</strong> {formData?.fstMobileNo}</Text></GridItem>
             <GridItem><Text><strong>Vehicle Type:</strong> {formData?.typeOfVehicle}</Text></GridItem>
           </Grid>
         </Box>
 
-        <Divider my={6} />
+        <Divider my={6} borderColor="gray.200" />
 
-        <Box mb={6}>
+        <Box mb={6} bg="gray.50" p={4} borderRadius="xl">
           <Heading size="md" mb={4} color="blue.600">Equipment Details</Heading>
           <Grid templateColumns="repeat(2, 1fr)" gap={3}>
             <GridItem><Text><strong>PTZ Model:</strong> {formData?.ptzCameraModelNumber}</Text></GridItem>
-            <GridItem><Text><strong>PTZ Serial:</strong> {formData?.ptzCameraSerialNumber}</Text></GridItem>
+            <GridItem><Text><strong>PTZ Camera ID:</strong> {formData?.ptzCameraSerialNumber}</Text></GridItem>
             <GridItem><Text><strong>PTZ Installed:</strong> {formData?.ptzCameraInstalledOnVehicle}</Text></GridItem>
             <GridItem><Text><strong>NVR Model:</strong> {formData?.nvrModelNo}</Text></GridItem>
             <GridItem><Text><strong>NVR Installed:</strong> {formData?.nvrInstalled}</Text></GridItem>
@@ -400,7 +333,7 @@ const FsvPhotoUpload = ({ vehicleId, formData, onUploadComplete }) => {
           </Grid>
         </Box>
 
-        <Divider my={6} />
+        <Divider my={6} borderColor="gray.200" />
 
         {/* Photos Preview */}
         <Box mb={6}>
@@ -408,42 +341,40 @@ const FsvPhotoUpload = ({ vehicleId, formData, onUploadComplete }) => {
           <SimpleGrid columns={{ base: 2, md: 3 }} spacing={4}>
             {photos.vehiclePhoto && (
               <Box>
-                <Text fontWeight="bold" mb={2}>Vehicle Photo</Text>
-                <Image src={URL.createObjectURL(photos.vehiclePhoto)} alt="Vehicle" borderRadius="md" />
+                <Text fontWeight="bold" mb={2} color="gray.600">Vehicle and Driver Photo</Text>
+                <Image src={URL.createObjectURL(photos.vehiclePhoto)} alt="Vehicle and Driver" borderRadius="lg" boxShadow="md" />
               </Box>
             )}
-            {photos.driverPhoto && (
+            {photos.localScreenPhoto && (
               <Box>
-                <Text fontWeight="bold" mb={2}>Driver Photo</Text>
-                <Image src={URL.createObjectURL(photos.driverPhoto)} alt="Driver" borderRadius="md" />
-              </Box>
-            )}
-            {photos.serviceProviderPhoto && (
-              <Box>
-                <Text fontWeight="bold" mb={2}>Service Provider Photo</Text>
-                <Image src={URL.createObjectURL(photos.serviceProviderPhoto)} alt="Service Provider" borderRadius="md" />
+                <Text fontWeight="bold" mb={2} color="gray.600">Local Screen Viewing</Text>
+                <Image src={URL.createObjectURL(photos.localScreenPhoto)} alt="Local Screen Viewing" borderRadius="lg" boxShadow="md" />
               </Box>
             )}
             {streamScreenshot && (
               <Box>
-                <Text fontWeight="bold" mb={2}>Stream Screenshot</Text>
-                <Image src={URL.createObjectURL(streamScreenshot)} alt="Stream" borderRadius="md" />
+                <Text fontWeight="bold" mb={2} color="gray.600">Portal Stream Screenshot</Text>
+                <Image src={URL.createObjectURL(streamScreenshot)} alt="Stream" borderRadius="lg" boxShadow="md" />
               </Box>
             )}
           </SimpleGrid>
         </Box>
 
         {/* Action Buttons */}
-        <Stack direction="row" spacing={4} justifyContent="center" mt={8}>
-          <Button colorScheme="gray" onClick={() => setShowPreview(false)}>Back to Edit</Button>
-          <Button 
-            colorScheme="green" 
-            size="lg" 
-            leftIcon={<FaFilePdf />}
-            isLoading={isUploading} 
+        <Stack direction={{ base: "column", sm: "row" }} spacing={4} justifyContent="center" mt={8}>
+          <Button
+            colorScheme="green"
+            size="md"
+            borderRadius="full"
+            isLoading={isUploading}
             onClick={uploadPhotos}
+            w={{ base: "full", sm: "auto" }}
+            fontSize="sm"
+            px={8}
+            boxShadow="md"
+            _hover={{ transform: "translateY(-1px)", boxShadow: "lg" }}
           >
-            Submit & Download PDF
+            Submit
           </Button>
         </Stack>
       </Box>
@@ -451,22 +382,38 @@ const FsvPhotoUpload = ({ vehicleId, formData, onUploadComplete }) => {
   }
 
   return (
-    <Box mt={8} p={5} borderWidth="1px" borderRadius="lg" bg="white">
-      <Heading size="md" mb={4}>FSV Photo Upload</Heading>
-      <Stack spacing={4}>
-        <SimpleGrid columns={{ base: 2, md: 3 }} spacing={4}>
-          {renderPhotoField("Vehicle Photo", "vehiclePhoto")}
-          {renderPhotoField("Driver Photo", "driverPhoto")}
-          {renderPhotoField("Service Provider Photo", "serviceProviderPhoto")}
+    <Box
+      mt={8}
+      p={6}
+      borderWidth="1px"
+      borderColor="gray.100"
+      borderRadius="2xl"
+      bg="white"
+      boxShadow="xl"
+    >
+      <Heading size="md" mb={6} color="gray.700">FSV Photo Upload</Heading>
+      <Stack spacing={6}>
+        <SimpleGrid columns={{ base: 2, md: 2 }} spacing={6}>
+          {renderPhotoField("Vehicle with Driver Photo", "vehiclePhoto")}
+          {renderPhotoField("Local Screen Viewing", "localScreenPhoto")}
         </SimpleGrid>
-        <Button colorScheme="blue" size="lg" onClick={showPreviewScreen}>Preview & Continue</Button>
+        <Button
+          colorScheme="blue"
+          size="lg"
+          borderRadius="full"
+          bgGradient="linear(to-r, blue.500, blue.600)"
+          _hover={{ bgGradient: "linear(to-r, blue.600, blue.700)", boxShadow: "lg" }}
+          onClick={showPreviewScreen}
+        >
+          Preview & Continue
+        </Button>
       </Stack>
 
       {/* Camera Modal */}
       <Modal isOpen={isOpen} onClose={onClose} size="full">
         <ModalOverlay />
         <ModalContent bg="black">
-          <ModalCloseButton color="white" zIndex={10} />
+          <ModalCloseButton color="white" zIndex={10} size="lg" />
           <ModalBody p={0} display="flex" flexDirection="column" justifyContent="center" alignItems="center">
             <Webcam
               audio={false}
@@ -475,17 +422,22 @@ const FsvPhotoUpload = ({ vehicleId, formData, onUploadComplete }) => {
               videoConstraints={videoConstraints}
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
-            <Button 
-                position="absolute" 
-                bottom="50px" 
-                borderRadius="full" 
-                w="80px" 
-                h="80px" 
-                bg="white" 
-                border="4px solid #ccc"
-                onClick={capture}
-                _hover={{ bg: "gray.200" }}
-            />
+            <Button
+              position="absolute"
+              bottom="50px"
+              borderRadius="full"
+              w="80px"
+              h="80px"
+              bg="white"
+              border="4px solid"
+              borderColor="gray.200"
+              onClick={capture}
+              boxShadow="0 0 20px rgba(0,0,0,0.5)"
+              _hover={{ bg: "gray.100", transform: "scale(1.05)" }}
+              transition="all 0.2s"
+            >
+              <Box w="60px" h="60px" borderRadius="full" bg="red.500" />
+            </Button>
           </ModalBody>
         </ModalContent>
       </Modal>

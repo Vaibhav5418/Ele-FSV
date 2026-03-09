@@ -1,4 +1,4 @@
-import { Avatar, Button, DrawerContent, Heading, IconButton, Menu, MenuButton, MenuItem, MenuList, Stack, Text, useBreakpointValue } from '@chakra-ui/react';
+import { Avatar, Button, DrawerContent, Heading, IconButton, Menu, MenuButton, MenuItem, MenuList, Portal, Stack, Text, useBreakpointValue } from '@chakra-ui/react';
 import React from 'react'
 import { useNavigate, useLocation } from 'react-router-dom';
 import DrawerButton from './Drawer';
@@ -50,19 +50,21 @@ const Header = () => {
                             </Menu> */}
                             <Menu>
                                 <MenuButton background="#3F77A5" fontSize={fontSize} as={IconButton} icon={<MdAccountCircle />} aria-label="Profile" variant="outline" />
-                                <MenuList>
-                                    {/* Display name and mobile */}
-                                    <MenuItem>
-                                        <Avatar size="sm" name={name} mr="2" />
-                                        <Stack spacing="0">
-                                            <Text fontWeight="bold">{name}</Text>
-                                            <Text fontSize="sm">{mobile}</Text>
-                                        </Stack>
-                                    </MenuItem>
-                                    <MenuItem onClick={handleSignOut} color='red'>
-                                        Logout
-                                    </MenuItem>
-                                </MenuList>
+                                <Portal>
+                                    <MenuList zIndex={2000}>
+                                        {/* Display name and mobile */}
+                                        <MenuItem>
+                                            <Avatar size="sm" name={name} mr="2" />
+                                            <Stack spacing="0">
+                                                <Text fontWeight="bold">{name}</Text>
+                                                <Text fontSize="sm">{mobile}</Text>
+                                            </Stack>
+                                        </MenuItem>
+                                        <MenuItem onClick={handleSignOut} color='red'>
+                                            Logout
+                                        </MenuItem>
+                                    </MenuList>
+                                </Portal>
                             </Menu>
                         </Stack>
                         {/* {isLoggedIn && <Button onClick={handleSignOut} display='flex' alignItems='center'>Logout</Button>} */}
@@ -80,19 +82,21 @@ height= "24.919px" src={logo} />&nbsp;</Heading>
                         {/* <Button onClick={handleSignOut} alignSelf="flex-end">Logout</Button> */}
                         <Menu>
                             <MenuButton as={IconButton} icon={<MdAccountCircle />} aria-label="Profile" variant="outline" />
-                            <MenuList>
-                                {/* Display name and mobile */}
-                                <MenuItem>
-                                    <Avatar size="sm" name={name} mr="2" />
-                                    <Stack spacing="0">
-                                        <Text fontWeight="bold">{name}</Text>
-                                        <Text fontSize="sm">{mobile}</Text>
-                                    </Stack>
-                                </MenuItem>
-                                <MenuItem onClick={handleSignOut} color='red'>
-                                    Logout
-                                </MenuItem>
-                            </MenuList>
+                            <Portal>
+                                <MenuList zIndex={2000}>
+                                    {/* Display name and mobile */}
+                                    <MenuItem>
+                                        <Avatar size="sm" name={name} mr="2" />
+                                        <Stack spacing="0">
+                                            <Text fontWeight="bold">{name}</Text>
+                                            <Text fontSize="sm">{mobile}</Text>
+                                        </Stack>
+                                    </MenuItem>
+                                    <MenuItem onClick={handleSignOut} color='red'>
+                                        Logout
+                                    </MenuItem>
+                                </MenuList>
+                            </Portal>
                         </Menu>
                         {/* {isLoggedIn && <Button onClick={handleSignOut} display='flex' alignItems='center'>Logout</Button>} */}
                     </Stack>

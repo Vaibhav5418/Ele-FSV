@@ -2,6 +2,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { Box, Container } from '@chakra-ui/react';
+import './App.css';
 
 // Import your other components here
 import Login from './components/Login'; // Import your Rekha component
@@ -29,6 +30,10 @@ import EleUserDetails from './components/EleUserDetails';
 import BiharUsers from './components/BiharUsers';
 import FsvInstallationForm from './components/FsvInstallationForm';
 import MasterDashboard from './components/MasterDashboard';
+import MyInstallations from './components/MyInstallations';
+import InstallationReport from './components/InstallationReport';
+import UsersInstallationReport from './components/UsersInstallationReport';
+import PwaInstallBanner from './components/PwaInstallBanner';
 
 function App() {
   return (
@@ -46,6 +51,7 @@ function AppContent() {
     <Container maxW="100vw" p='0'>
       <Box>
         {!isLoginPage && <Header />}
+        <PwaInstallBanner />
 
         <Routes>
           <Route path="/dashboard" element={<Dashboard />} />
@@ -72,6 +78,9 @@ function AppContent() {
           <Route path="/state/:state/:district/:assemblyName" element={<AssemblyPage />} />
           <Route path="/fsv-installation" element={<FsvInstallationForm />} />
           <Route path="/master-dashboard" element={<MasterDashboard />} />
+          <Route path="/my-installations" element={<MyInstallations />} />
+          <Route path="/installation-report" element={<InstallationReport />} />
+          <Route path="/users-installation-report" element={<UsersInstallationReport />} />
         </Routes>
       </Box>
     </Container>

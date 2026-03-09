@@ -9,8 +9,8 @@ const vehicleSchema = new mongoose.Schema({
     installationSiteAddress: { type: String, required: true },
     driverName: { type: String, required: true },
     driverMobileNo: { type: String, required: true },
-    fstName: { type: String, required: true },
-    fstMobileNo: { type: String, required: true },
+    fstName: { type: String, required: false, default: '' },
+    fstMobileNo: { type: String, required: false, default: '' },
     typeOfVehicle: { type: String, required: true },
 
     // Equipment & Installation Fields
@@ -36,7 +36,10 @@ const vehicleSchema = new mongoose.Schema({
     driverPhotoUrl: { type: String },
     fstMemberPhotoUrl: { type: String },
     serviceProviderPhotoUrl: { type: String },
-    pilPhotoUrl: { type: String }
+    pilPhotoUrl: { type: String },
+    localScreenPhotoUrl: { type: String },
+    streamScreenshotUrl: { type: String },
+    createdByMobile: { type: String }
 
 }, { timestamps: true });
 

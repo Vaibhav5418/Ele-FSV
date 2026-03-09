@@ -36,3 +36,19 @@
     transform: rotate(360deg);
   }
 }
+
+/* Keep react-toastify icons compact on all screens/routes */
+.Toastify__toast {
+  min-height: 46px !important;
+}
+
+.Toastify__toast-icon {
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+}
+
+.Toastify__toast-icon svg {
+  width: 18px !important;
+  height: 18px !important;
+}

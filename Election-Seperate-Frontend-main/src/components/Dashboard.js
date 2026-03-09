@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Button, CardFooter, CardHeader, Container, Drawer, DrawerBody, DrawerCloseButton, DrawerContent, DrawerFooter, DrawerHeader, DrawerOverlay, Text } from '@chakra-ui/react';
+import { Box, Button, Container, Text } from '@chakra-ui/react';
 import { MdAdd, MdTableRows } from "react-icons/md";
 import Header from './Header';
 import { getDashboardDetails } from '../actions/userActions';

@@ -4,7 +4,29 @@ import axios from 'axios';
 // const baseURL = 'https://seahorse-app-2-3o2pf.ondigitalocean.app/election';
 // const baseURL = 'http://192.168.29.123:7073/election';
 // const baseURL = 'https://esp.vmukti.com/backend/election';
-const baseURL = process.env.REACT_APP_API_URL;
+const rawBaseURL = process.env.REACT_APP_API_URL;
+
+const resolveApiBaseURL = () => {
+  if (!rawBaseURL) return rawBaseURL;
+
+  try {
+    const parsed = new URL(rawBaseURL);
+    const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+    const appHost = typeof window !== 'undefined' ? window.location.hostname : '';
+
+    // When app runs from another host/device, localhost points to that device itself.
+    // Replace localhost with the current app host to hit the same backend machine.
+    if (isLocalhost && appHost && appHost !== 'localhost' && appHost !== '127.0.0.1') {
+      parsed.hostname = appHost;
+    }
+
+    return parsed.toString().replace(/\/$/, '');
+  } catch (_err) {
+    return rawBaseURL;
+  }
+};
+
+const baseURL = resolveApiBaseURL();
 
 const instance = axios.create({
   baseURL: baseURL
@@ -49,7 +71,9 @@ export const getCamera = async (mobile) => {
 
     return response.data;
   } catch (error) {
-    console.error(error);
+    if (error?.code !== 'ERR_NETWORK') {
+      console.error(error);
+    }
     // Handle errors, and include an error message in the response
     return { success: false, message: error.message || 'An error occurred during login.' };
   }
@@ -444,7 +468,7 @@ export const verifyOtp = async (mobile, otp) => {
   }
 };
 
-export const installCamera = async (deviceId, name, mobile, assemblyName, psNumber, state, district, excelLocation, latitude, longitude, installed_status, status ,date, time, remarks) => {
+export const installCamera = async (deviceId, name, mobile, assemblyName, psNumber, state, district, excelLocation, latitude, longitude, installed_status, status, date, time, remarks) => {
   try {
 
     const response = await instance.post('/create', {
@@ -462,7 +486,7 @@ export const installCamera = async (deviceId, name, mobile, assemblyName, psNumb
       date: date,
       time: time,
       remarks: remarks,
-      status : status
+      status: status
     });
 
     console.log(response.data);
@@ -583,7 +607,9 @@ export const getCamerasByNumber = async (mobile) => {
 
     return response.data;
   } catch (error) {
-    console.error(error);
+    if (error?.code !== 'ERR_NETWORK') {
+      console.error(error);
+    }
     // Handle errors, and include an error message in the response
     return { success: false, message: error.message || 'An error occurred during login.' };
   }
@@ -949,7 +975,8 @@ export const importAttendance = async (date, time, name, mobile, latitude, longi
 
 export const createFsvReport = async (data) => {
   try {
-    const response = await instance.post('/api/fsv/create', data);
+    const mobile = localStorage.getItem('mobile');
+    const response = await instance.post('/api/fsv/create', { ...data, mobile });
     return response.data;
   } catch (error) {
     console.error(error);
@@ -989,9 +1016,13 @@ export const getFsvSuggestions = async (query) => {
   }
 };
 
-export const getAllFsvReports = async () => {
+export const getAllFsvReports = async (startDate = null, endDate = null) => {
   try {
-    const response = await instance.get(`/api/fsv/all/reports`);
+    const params = {};
+    if (startDate) params.startDate = startDate;
+    if (endDate) params.endDate = endDate;
+
+    const response = await instance.get(`/api/fsv/all/reports`, { params });
     return response.data;
   } catch (error) {
     console.error(error);
@@ -1020,3 +1051,45 @@ export const getAuditLogs = async (page = 1, limit = 50, filters = {}) => {
   }
 };
 
+export const getUserInstallations = async () => {
+  try {
+    const mobile = localStorage.getItem('mobile');
+    const response = await instance.get(`/api/fsv/my-installations?mobile=${mobile}`);
+    return response.data;
+  } catch (error) {
+    console.error(error);
+    return { success: false, message: error.message || 'Failed to fetch installations' };
+  }
+};
+
+export const saveAiStatusRecord = async (payload) => {
+  try {
+    const response = await instance.post('/api/fsv/aistatus', payload);
+    return response.data;
+  } catch (error) {
+    return { success: false, message: error.message || 'Failed to save AI status record' };
+  }
+};
+
+export const getSavedAiStatusRecord = async (deviceId) => {
+  try {
+    const response = await instance.get(`/api/fsv/aistatus/${deviceId}`);
+    return response.data;
+  } catch (error) {
+    return { success: false, message: error.message || 'Failed to fetch AI status record' };
+  }
+};
+
+export const getUsersInstallationReport = async (startDate, endDate) => {
+  try {
+    const params = {};
+    if (startDate) params.startDate = startDate;
+    if (endDate) params.endDate = endDate;
+
+    const response = await instance.get('/api/fsv/reports/user-installations', { params });
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching users installation report:", error);
+    return { success: false, message: error.message };
+  }
+};
