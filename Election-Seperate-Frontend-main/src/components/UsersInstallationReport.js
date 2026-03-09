@@ -194,7 +194,7 @@ const UsersInstallationReport = () => {
         ];
         worksheet["!cols"] = colWidths;
 
-        // Apply bold style to rows matching the header
+        // Apply bold/italic styles to specific rows
         for (let R = 0; R < aoaData.length; R++) {
             if (aoaData[R][0] === "Vehicle No") {
                 for (let C = 0; C < 12; C++) {
@@ -212,6 +212,12 @@ const UsersInstallationReport = () => {
                     }
                 }
             }
+        }
+
+        // Apply italic style to the footer cell
+        const footerCellAddress = XLSX.utils.encode_cell({ r: footerRowIndex, c: 0 });
+        if (worksheet[footerCellAddress]) {
+            worksheet[footerCellAddress].s = { font: { italic: true } };
         }
 
         const workbook = XLSX.utils.book_new();
@@ -363,11 +369,13 @@ const UsersInstallationReport = () => {
         const footerText = `This is System Generated Report on ${dateStr} at ${timeStr}`;
 
         doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
         if (currentY > pageHeight - 20) {
             doc.addPage();
             currentY = 20;
         }
         doc.text(footerText, pageWidth / 2, currentY, { align: 'center' });
+        doc.setFont('helvetica', 'normal');
 
         doc.save(getFileName('pdf'));
     };
