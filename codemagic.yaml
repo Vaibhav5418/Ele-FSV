@@ -6,7 +6,7 @@ workflows:
 
     environment:
       xcode: latest
-      node: 18
+      node: 20
       cocoapods: default
       vars:
         BUNDLE_ID: "com.vesp.app"
