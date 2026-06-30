@@ -47,9 +47,19 @@ workflows:
             -scheme App \
             -configuration Debug \
             -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
+
+      # Step 6: Package Unsigned IPA
+      - name: Package Unsigned IPA
+        script: |
+          cd $FRONTEND_DIR/ios/App/build/DerivedData/Build/Products/Debug-iphoneos
+          mkdir -p Payload
+          cp -r App.app Payload/
+          zip -r ESP-Vmukti-unsigned.ipa Payload
+          rm -rf Payload
 
       # Step 6: Archive & Export IPA (uncomment after adding Apple Developer certificates)
       # - name: Archive iOS app
@@ -71,8 +81,7 @@ workflows:
       #       -exportPath build/output
 
     artifacts:
-      - Election-Seperate-Frontend-main/ios/App/build/**/*.xcarchive
-      - Election-Seperate-Frontend-main/ios/App/build/output/**/*.ipa
+      - Election-Seperate-Frontend-main/ios/App/build/DerivedData/Build/Products/Debug-iphoneos/*.ipa
 
     publishing:
       email:
