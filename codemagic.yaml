@@ -1,0 +1,83 @@
+workflows:
+  ios-capacitor-build:
+    name: iOS Capacitor Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      xcode: latest
+      node: 18
+      cocoapods: default
+      vars:
+        BUNDLE_ID: "com.vesp.app"
+        APP_NAME: "ESP-Vmukti"
+        FRONTEND_DIR: "Election-Seperate-Frontend-main"
+
+    scripts:
+      # Step 1: Install Node dependencies
+      - name: Install npm dependencies
+        script: |
+          cd $FRONTEND_DIR
+          npm install
+
+      # Step 2: Build the React web app
+      - name: Build web app
+        script: |
+          cd $FRONTEND_DIR
+          npm run build
+
+      # Step 3: Sync Capacitor (copies build/ to ios/)
+      - name: Capacitor sync iOS
+        script: |
+          cd $FRONTEND_DIR
+          npx cap sync ios
+
+      # Step 4: Install CocoaPods dependencies
+      - name: Install CocoaPods
+        script: |
+          cd $FRONTEND_DIR/ios/App
+          pod install
+
+      # Step 5: Build the iOS app (unsigned - for testing)
+      - name: Build iOS app
+        script: |
+          cd $FRONTEND_DIR/ios/App
+          xcodebuild build \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      # Step 6: Archive & Export IPA (uncomment after adding Apple Developer certificates)
+      # - name: Archive iOS app
+      #   script: |
+      #     cd $FRONTEND_DIR/ios/App
+      #     xcodebuild archive \
+      #       -workspace App.xcworkspace \
+      #       -scheme App \
+      #       -configuration Release \
+      #       -archivePath build/App.xcarchive \
+      #       -destination 'generic/platform=iOS'
+      #
+      # - name: Export IPA
+      #   script: |
+      #     cd $FRONTEND_DIR/ios/App
+      #     xcodebuild -exportArchive \
+      #       -archivePath build/App.xcarchive \
+      #       -exportOptionsPlist exportOptions.plist \
+      #       -exportPath build/output
+
+    artifacts:
+      - Election-Seperate-Frontend-main/ios/App/build/**/*.xcarchive
+      - Election-Seperate-Frontend-main/ios/App/build/output/**/*.ipa
+
+    publishing:
+      email:
+        recipients:
+          - your-email@example.com  # Change to your email
+        notify:
+          success: true
+          failure: true
