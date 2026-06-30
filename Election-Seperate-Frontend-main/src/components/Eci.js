@@ -288,6 +288,7 @@ const Eci = () => {
       //   });
       // });
     };
+    window.initMap = initMap;
 
     if (window.google && window.google.maps) {
       initMap();

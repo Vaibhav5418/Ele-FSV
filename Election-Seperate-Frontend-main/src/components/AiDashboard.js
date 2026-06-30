@@ -198,8 +198,8 @@ const AiDashboard = () => {
   useEffect(() => {
     fetchData(); // Fetch data initially when the component mounts
     fetchDatadistrict();
-    const intervalId = setInterval(fetchData, 30000); // Fetch data every 30 seconds
-    const intervalIdDistrict = setInterval(fetchDatadistrict, 30000); // Fetch data every 30 seconds
+    const intervalId = setInterval(fetchData, 5000); // Fetch data every 5 seconds
+    const intervalIdDistrict = setInterval(fetchDatadistrict, 5000); // Fetch data every 5 seconds
 
     return () => {
       clearInterval(intervalId, intervalIdDistrict); // Cleanup interval when component unmounts

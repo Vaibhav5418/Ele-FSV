@@ -35,6 +35,11 @@ const InstallationListModal = ({ isOpen, onClose, installation }) => {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   if (!installation) return null;
+  const qrtVehicleValue = installation?.isQrtVehicle || installation?.isQRTVehicle || 'N/A';
+  const backsideLCDInstalledValue = installation?.backsideLCDInstalled || 'Yes';
+  const dcAcConverterInstalledValue = installation?.dcAcConverterInstalled || 'Yes';
+  const electricalPowerStripInstalledValue = installation?.electricalPowerStripInstalled || 'Yes';
+  const trainingToDriverAndFSTMemberValue = installation?.trainingToDriverAndFSTMember || 'Yes';
 
   // Helper function to load image and convert to base64
   const getImageData = (url) => {
@@ -172,12 +177,16 @@ const InstallationListModal = ({ isOpen, onClose, installation }) => {
       drawCell(margin + col1Width, yPos, col2Width, rowHeight, `Type of Vehicle: ${installation?.typeOfVehicle || ''}`, true);
       yPos += rowHeight;
 
-      // Row 5: FST Incharge Name | FST Mobile No.
-      drawCell(margin, yPos, col1Width, rowHeight, `FST Incharge Name: ${installation?.fstName || ''}`, true);
-      drawCell(margin + col1Width, yPos, col2Width, rowHeight, `FST Mobile No.: ${installation?.fstMobileNo || ''}`, true);
+      // Row 6: Installer Name | Installer Mobile
+      drawCell(margin, yPos, col1Width, rowHeight, `Installer Name: ${installation?.installerName || ''}`, true);
+      drawCell(margin + col1Width, yPos, col2Width, rowHeight, `Installer Mobile: ${installation?.installerMobile || installation?.createdByMobile || ''}`, true);
       yPos += rowHeight;
 
-      // Row 6: Created At timestamp
+      // Row 6: Is QRT vehicle?
+      drawCell(margin, yPos, pageWidth - 2 * margin, rowHeight, `Is QRT vehicle?: ${qrtVehicleValue}`, true);
+      yPos += rowHeight;
+
+      // Row 7: Created At timestamp
       drawCell(margin, yPos, pageWidth - 2 * margin, rowHeight, `Created At: ${createdAtText}`, true);
       yPos += rowHeight;
 
@@ -202,14 +211,14 @@ const InstallationListModal = ({ isOpen, onClose, installation }) => {
         ['NVR Installed', '', installation?.nvrInstalled || 'No'],
         ['Battery Serial No.', installation?.batterySerialNo || '', ''],
         ['Battery installed at Vehicle', '', installation?.batteryInstalledAtVehicle || 'No'],
-        ['Backside LCD Installed', '', installation?.backsideLCDInstalled || 'No'],
+        ['Backside LCD Installed', '', backsideLCDInstalledValue],
         ['GPS Device Serial No', installation?.gpsDeviceSerialNo || '', ''],
         ['GPS Device installed', '', installation?.gpsDeviceInstalled || 'No'],
-        ['DC/AC Converter Installed', '', installation?.dcAcConverterInstalled || 'No'],
+        ['DC/AC Converter Installed', '', dcAcConverterInstalledValue],
         ['Internet 4G Router installed back site', '', installation?.internet4GRouterInstalledBackSite || 'No'],
         ['Router No.', installation?.internet4GRouterSimNo || '', ''],
-        ['Electrical Power strip Installed', '', installation?.electricalPowerStripInstalled || 'No'],
-        ['Training to Driver & FST Incharge', '', installation?.trainingToDriverAndFSTMember || 'No'],
+        ['Electrical Power strip Installed', '', electricalPowerStripInstalledValue],
+        ['Training to Driver & FST Incharge', '', trainingToDriverAndFSTMemberValue],
         ['Camera View Visible', '', installation?.successfulTestWebStreaming || 'No']
       ];
 
@@ -396,8 +405,9 @@ const InstallationListModal = ({ isOpen, onClose, installation }) => {
               <GridItem><Text><strong>Installation Site:</strong> {installation.installationSiteAddress}</Text></GridItem>
               <GridItem><Text><strong>Driver Mobile:</strong> {installation.driverMobileNo}</Text></GridItem>
               <GridItem><Text><strong>Type of Vehicle:</strong> {installation.typeOfVehicle}</Text></GridItem>
-              <GridItem><Text><strong>FST Incharge Name:</strong> {installation.fstName}</Text></GridItem>
-              <GridItem><Text><strong>FST Mobile No.:</strong> {installation.fstMobileNo}</Text></GridItem>
+              <GridItem><Text><strong>Is QRT vehicle?:</strong> {qrtVehicleValue}</Text></GridItem>
+              <GridItem><Text><strong>Installer Name:</strong> {installation.installerName || 'N/A'}</Text></GridItem>
+              <GridItem><Text><strong>Installer Mobile:</strong> {installation.installerMobile || installation.createdByMobile || 'N/A'}</Text></GridItem>
             </Grid>
           </Box>
 
@@ -459,6 +469,26 @@ const InstallationListModal = ({ isOpen, onClose, installation }) => {
                   <Td>GPS Device installed</Td>
                   <Td></Td>
                   <Td><Badge colorScheme={installation.gpsDeviceInstalled === 'Yes' ? 'green' : 'red'}>{installation.gpsDeviceInstalled}</Badge></Td>
+                </Tr>
+                <Tr>
+                  <Td>Backside LCD Installed</Td>
+                  <Td></Td>
+                  <Td><Badge colorScheme="green">{backsideLCDInstalledValue}</Badge></Td>
+                </Tr>
+                <Tr>
+                  <Td>DC/AC Converter Installed</Td>
+                  <Td></Td>
+                  <Td><Badge colorScheme="green">{dcAcConverterInstalledValue}</Badge></Td>
+                </Tr>
+                <Tr>
+                  <Td>Electrical Power strip Installed</Td>
+                  <Td></Td>
+                  <Td><Badge colorScheme="green">{electricalPowerStripInstalledValue}</Badge></Td>
+                </Tr>
+                <Tr>
+                  <Td>Training to Driver & FST Incharge</Td>
+                  <Td></Td>
+                  <Td><Badge colorScheme="green">{trainingToDriverAndFSTMemberValue}</Badge></Td>
                 </Tr>
                 <Tr>
                   <Td>Router No.</Td>

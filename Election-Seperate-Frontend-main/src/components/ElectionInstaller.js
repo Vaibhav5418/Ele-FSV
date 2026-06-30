@@ -396,6 +396,7 @@ const ElectionInstaller = () => {
         });
       });
     };
+    window.initMap = initMap;
 
     if (window.google && window.google.maps) {
       initMap();

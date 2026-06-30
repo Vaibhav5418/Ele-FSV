@@ -25,7 +25,7 @@ import {
 } from '@chakra-ui/react';
 import Webcam from 'react-webcam';
 import { uploadFsvPhotos } from '../actions/userActions';
-import { FaCamera, FaRedo } from 'react-icons/fa';
+import { FaCamera, FaRedo, FaCheckCircle } from 'react-icons/fa';
 import html2canvas from 'html2canvas';
 
 const FsvPhotoUpload = ({ vehicleId, formData, location, address, onUploadComplete }) => {
@@ -36,12 +36,24 @@ const FsvPhotoUpload = ({ vehicleId, formData, location, address, onUploadComple
   });
   const [streamScreenshot, setStreamScreenshot] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isUploaded, setIsUploaded] = useState(false);
+  const [isSuccessOpen, setIsSuccessOpen] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [currentField, setCurrentField] = useState(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const webcamRef = useRef(null);
   const previewRef = useRef(null);
+  const uploadContainerRef = useRef(null);
   const [geoAddress, setGeoAddress] = useState(address || "");
+
+  // Auto-scroll when component mounts
+  useEffect(() => {
+    if (uploadContainerRef.current) {
+      setTimeout(() => {
+        uploadContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    }
+  }, []);
 
   // Fetch address internally if prop is missing but coordinates exist
   useEffect(() => {
@@ -199,26 +211,28 @@ const FsvPhotoUpload = ({ vehicleId, formData, location, address, onUploadComple
       return;
     }
 
+    if (!photos.vehiclePhoto || !photos.localScreenPhoto || !streamScreenshot) {
+      toast({
+        title: "Photos Required",
+        description: "Please capture Vehicle with Driver Photo, Local Screen Viewing Photo, and ensure the Portal Stream Screenshot is captured.",
+        status: "warning",
+        duration: 5000,
+        isClosable: true
+      });
+      return;
+    }
+
     setIsUploading(true);
     const data = new FormData();
-    let hasFiles = false;
     Object.keys(photos).forEach(key => {
       if (photos[key]) {
         data.append(key, photos[key]);
-        hasFiles = true;
       }
     });
 
     // Add stream screenshot if captured
     if (streamScreenshot) {
       data.append('streamScreenshot', streamScreenshot);
-      hasFiles = true;
-    }
-
-    if (!hasFiles) {
-      toast({ title: "No photos captured", status: "warning" });
-      setIsUploading(false);
-      return;
     }
 
     try {
@@ -226,7 +240,7 @@ const FsvPhotoUpload = ({ vehicleId, formData, location, address, onUploadComple
       const response = await uploadFsvPhotos(vehicleId, data);
       if (response.success) {
         toast({ title: "Photos Uploaded Successfully", status: "success" });
-        if (onUploadComplete) onUploadComplete();
+        setIsUploaded(true);
       } else {
         toast({ title: "Upload Failed", description: response.message, status: "error" });
       }
@@ -239,7 +253,9 @@ const FsvPhotoUpload = ({ vehicleId, formData, location, address, onUploadComple
 
   const renderPhotoField = (label, name) => (
     <FormControl>
-      <FormLabel fontWeight="bold" color="gray.700" mb={2}>{label}</FormLabel>
+      <FormLabel fontWeight="bold" color="gray.700" mb={2}>
+        {label} <span style={{ color: 'red', marginLeft: '4px' }}>*</span>
+      </FormLabel>
       <Box
         border="2px dashed"
         borderColor="gray.300"
@@ -311,8 +327,6 @@ const FsvPhotoUpload = ({ vehicleId, formData, location, address, onUploadComple
             <GridItem><Text><strong>Site Address:</strong> {formData?.installationSiteAddress}</Text></GridItem>
             <GridItem><Text><strong>Driver Name:</strong> {formData?.driverName}</Text></GridItem>
             <GridItem><Text><strong>Driver Mobile:</strong> {formData?.driverMobileNo}</Text></GridItem>
-            <GridItem><Text><strong>FST Incharge Name:</strong> {formData?.fstName}</Text></GridItem>
-            <GridItem><Text><strong>FST Mobile No.:</strong> {formData?.fstMobileNo}</Text></GridItem>
             <GridItem><Text><strong>Vehicle Type:</strong> {formData?.typeOfVehicle}</Text></GridItem>
           </Grid>
         </Box>
@@ -362,27 +376,75 @@ const FsvPhotoUpload = ({ vehicleId, formData, location, address, onUploadComple
 
         {/* Action Buttons */}
         <Stack direction={{ base: "column", sm: "row" }} spacing={4} justifyContent="center" mt={8}>
-          <Button
-            colorScheme="green"
-            size="md"
-            borderRadius="full"
-            isLoading={isUploading}
-            onClick={uploadPhotos}
-            w={{ base: "full", sm: "auto" }}
-            fontSize="sm"
-            px={8}
-            boxShadow="md"
-            _hover={{ transform: "translateY(-1px)", boxShadow: "lg" }}
-          >
-            Submit
-          </Button>
+          {!isUploaded ? (
+            <Button
+              colorScheme="blue"
+              size="md"
+              borderRadius="full"
+              isLoading={isUploading}
+              isDisabled={!photos.vehiclePhoto || !photos.localScreenPhoto || !streamScreenshot}
+              onClick={uploadPhotos}
+              w={{ base: "full", sm: "auto" }}
+              fontSize="sm"
+              px={8}
+              boxShadow="md"
+              _hover={{ transform: "translateY(-1px)", boxShadow: "lg" }}
+            >
+              Upload Photos
+            </Button>
+          ) : (
+            <Button
+              colorScheme="green"
+              size="md"
+              borderRadius="full"
+              onClick={() => setIsSuccessOpen(true)}
+              w={{ base: "full", sm: "auto" }}
+              fontSize="sm"
+              px={8}
+              boxShadow="md"
+              _hover={{ transform: "translateY(-1px)", boxShadow: "lg" }}
+            >
+              Submit Form
+            </Button>
+          )}
         </Stack>
+
+        {/* Success Modal */}
+        <Modal isOpen={isSuccessOpen} onClose={() => {}} isCentered closeOnOverlayClick={false}>
+          <ModalOverlay backdropFilter="blur(8px)" />
+          <ModalContent borderRadius="2xl" p={6} textAlign="center">
+            <VStack spacing={5}>
+              <Box color="green.500" fontSize="6xl">
+                <FaCheckCircle />
+              </Box>
+              <Heading size="lg" color="gray.800">
+                Form Submitted Successfully
+              </Heading>
+              <Text fontSize="md" color="gray.600">
+                The submitted data and photos have been successfully stored in the database.
+              </Text>
+              <Button
+                colorScheme="green"
+                size="lg"
+                w="full"
+                borderRadius="xl"
+                onClick={() => {
+                  setIsSuccessOpen(false);
+                  if (onUploadComplete) onUploadComplete();
+                }}
+              >
+                OK
+              </Button>
+            </VStack>
+          </ModalContent>
+        </Modal>
       </Box>
     );
   }
 
   return (
     <Box
+      ref={uploadContainerRef}
       mt={8}
       p={6}
       borderWidth="1px"
@@ -404,6 +466,7 @@ const FsvPhotoUpload = ({ vehicleId, formData, location, address, onUploadComple
           bgGradient="linear(to-r, blue.500, blue.600)"
           _hover={{ bgGradient: "linear(to-r, blue.600, blue.700)", boxShadow: "lg" }}
           onClick={showPreviewScreen}
+          isDisabled={!photos.vehiclePhoto || !photos.localScreenPhoto}
         >
           Preview & Continue
         </Button>

@@ -11,19 +11,7 @@ const AuditLog = require('../models/AuditLog');
  */
 const logAction = async (user, action, resourceType, resourceId = null, changes = null, ipAddress = null) => {
     try {
-        const logEntry = new AuditLog({
-            userId: user._id || null,
-            userName: user.name || 'Unknown',
-            userMobile: user.mobile || 'Unknown',
-            userRole: user.role || 'Unknown',
-            action,
-            resourceType,
-            resourceId,
-            changes,
-            ipAddress
-        });
-
-        await logEntry.save();
+        // AuditLog model is disabled, so we just log to console
         console.log(`Audit Log Created: ${action} on ${resourceType} by ${user.name || user.mobile}`);
     } catch (error) {
         console.error('Error creating audit log:', error);

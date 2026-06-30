@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Button, Drawer, DrawerBody, DrawerCloseButton, IconButton, Menu, MenuButton, MenuItem, MenuList, useBreakpointValue, DrawerContent, DrawerFooter, DrawerHeader, DrawerOverlay, Flex, Icon, Text, VStack } from '@chakra-ui/react';
-import { MdAccountCircle, MdAdd, MdBuild, MdDashboard, MdTableRows } from "react-icons/md";
+import { MdAccountCircle, MdAdd, MdBuild, MdDashboard, MdTableRows, MdPhoto, MdApi, MdWorkHistory, MdExtension } from "react-icons/md";
 import { useNavigate, useLocation } from 'react-router-dom';
 import logo1 from './images/logo/logo1.png';
 
@@ -35,36 +35,38 @@ const DrawerButton = ({ drawerContent }) => {
             { path: "/autoinstaller", label: "Auto Installer", icon: MdBuild },
             { path: "/eleuser", label: "User Analytics", icon: MdBuild },
             { path: "/master-dashboard", label: "Master Dashboard", icon: MdDashboard },
-            { path: "/installation-report", label: "Download Report", icon: MdTableRows },
-            { path: "/users-installation-report", label: "Users Installation Report", icon: MdTableRows },
+            { path: "/installation-report", label: "Download Report", icon: MdApi },
+            { path: "/users-installation-report", label: "FSV Installation Report", icon: MdExtension },
+            { path: "/photo", label: "Photo", icon: MdPhoto },
         );
     } else if (role === "master") {
         menuItems.push(
             { path: "/master-dashboard", label: "Dashboard", icon: MdDashboard },
             { path: "/autoinstaller", label: "Auto Installer", icon: MdBuild },
             { path: "/my-installations", label: "My Installations", icon: MdTableRows },
-            { path: "/installation-report", label: "Download Report", icon: MdTableRows },
-            { path: "/users-installation-report", label: "Users Installation Report", icon: MdTableRows },
+            { path: "/installation-report", label: "Download Report", icon: MdApi },
+            { path: "/users-installation-report", label: "FSV Installation Report", icon: MdExtension },
+            { path: "/photo", label: "Photo", icon: MdPhoto },
         );
     } else if (role === "district") {
         menuItems.push(
             { path: "/head", label: "District Manager", icon: MdAccountCircle },
             { path: "/installer", label: "Installer", icon: MdBuild },
             { path: "/autoinstaller", label: "Auto Installer", icon: MdBuild },
-            { path: "/installation-report", label: "Download Report", icon: MdTableRows },
+            { path: "/installation-report", label: "Download Report", icon: MdApi },
         );
     } else if (role === "installer" || role === "autoinstaller") {
         menuItems.push(
             { path: "/autoinstaller", label: "Auto Installer", icon: MdBuild },
             { path: "/my-installations", label: "My Installations", icon: MdTableRows },
-            { path: "/installation-report", label: "Download Report", icon: MdTableRows },
+            { path: "/installation-report", label: "Download Report", icon: MdApi },
         );
     } else {
         // Fallback for other roles
         menuItems.push(
             { path: "/autoinstaller", label: "Auto Installer", icon: MdBuild },
             { path: "/my-installations", label: "My Installations", icon: MdTableRows },
-            { path: "/installation-report", label: "Download Report", icon: MdTableRows },
+            { path: "/installation-report", label: "Download Report", icon: MdApi },
         );
     }
 

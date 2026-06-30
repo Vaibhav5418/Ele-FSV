@@ -65,7 +65,7 @@ import {
   saveAiStatusRecord,
   getSavedAiStatusRecord
 } from "../actions/userActions"; // Import the new action
-import { MdDelete, MdEdit, MdVisibility, MdDashboard } from "react-icons/md";
+import { MdDelete, MdEdit, MdVisibility, MdDashboard, MdArrowBack, MdRefresh } from "react-icons/md";
 import withAuth from "./withAuth";
 // import { ReactFlvPlayer } from 'react-flv-player';
 import videojs from "video.js";
@@ -90,8 +90,18 @@ import FsvInstallationForm from './FsvInstallationForm';
 const AutoInstaller = () => {
   const locationHook = useLocation();
   const navigate = useNavigate();
-  const fsvVehicleId = locationHook.state?.fsvVehicleId;
-  const fsvFormData = locationHook.state?.fsvFormData;
+  // Local state for FSV Photo Upload
+  const [fsvVehicleId, setFsvVehicleId] = useState(locationHook.state?.fsvVehicleId || null);
+  const [fsvFormData, setFsvFormData] = useState(locationHook.state?.fsvFormData || null);
+
+  // Sync and immediately clear route state to prevent persistence on refresh/reload
+  useEffect(() => {
+    if (locationHook.state?.fsvVehicleId) {
+      setFsvVehicleId(locationHook.state.fsvVehicleId);
+      setFsvFormData(locationHook.state.fsvFormData);
+      navigate('/autoinstaller', { replace: true, state: {} });
+    }
+  }, [locationHook.state, navigate]);
   // State
   const [expandedCameraId, setExpandedCameraId] = useState(null);
 
@@ -247,14 +257,9 @@ const AutoInstaller = () => {
     };
   }, []);
   const handleBackClick = () => {
-    setShowAdditionalInputs(false);
-    // Optionally clear any form fields or camera data here if needed
-    setDeviceId(""); // Reset DeviceID
-    setFlvUrl(""); // Reset video URL
-    setCameraStatus(null); // Reset camera status
-    setHasClickedCameraDidInfo(false); // Reset this state when adding new device
     clearInterval(cameraStatusInterval.current);
     clearInterval(toastInterval.current);
+    window.location.href = '/autoinstaller';
   };
   const handleGetData = async (deviceId, setting) => {
     const response = await getCameraByDid(deviceId);
@@ -327,10 +332,12 @@ const AutoInstaller = () => {
         const fsvResponse = await searchFsvDevice(deviceId);
         console.log("FSV Search Response:", fsvResponse); // DEBUG LOG
 
-        if (fsvResponse.success && fsvResponse.fsvData) {
-          fsvHasData = true;
-          setFsvData(fsvResponse.fsvData); // We need to create this state
-          toast.success("FSV Data Found! Auto-filling form...");
+        if (fsvResponse.success) {
+          if (fsvResponse.fsvData) {
+            fsvHasData = true;
+            setFsvData(fsvResponse.fsvData); // We need to create this state
+            toast.success("FSV Data Found! Auto-filling form...");
+          }
 
           // NEW: Handle AI Status if present
           const statusPayload =
@@ -444,6 +451,16 @@ const AutoInstaller = () => {
         setPsNumber(fetchedPsNumber);
         setDistrict(fetchedDistrict);
         setExcelLocation(fetchedExcelLocation);
+      }
+
+      if (!fsvHasData) {
+        setFsvData({
+          districtName: fetchedDistrict || "",
+          acName: fetchedAssemblyName || "",
+          state: fetchedState || "",
+          ptzCameraSerialNumber: deviceId,
+          ptzCameraModelNumber: "ATPL"
+        });
       }
 
       let aiStatusResolved = false;
@@ -566,7 +583,7 @@ const AutoInstaller = () => {
 
     cameraStatusInterval.current = setInterval(() => {
       fetchCameraStatus(deviceId);
-    }, 15000);
+    }, 5000);
   };
 
   const fetchCameraStatus = async (deviceId) => {
@@ -668,7 +685,10 @@ const AutoInstaller = () => {
         //       });
       }
     } catch (error) {
-      console.error("Error fetching camera status:", error);
+      // Suppress network errors from background polling
+      if (error.code !== 'ERR_NETWORK' && error.message !== 'Network Error') {
+        console.error("Error fetching camera status:", error);
+      }
       setIsFetchingCameraDetails(false);
     }
   };
@@ -702,6 +722,9 @@ const AutoInstaller = () => {
       } else {
         // For standard HTTP/HTTPS FLV URLs, convert to RTMP format as before
         let rtmpUrl = targetUrl.replace("https://", "rtmp://").replace("http://", "rtmp://");
+        if (!rtmpUrl.startsWith("rtmp://")) {
+          rtmpUrl = "rtmp://" + rtmpUrl;
+        }
         const url = new URL(rtmpUrl);
         if (!url.port) {
           url.port = "80";
@@ -847,6 +870,8 @@ const AutoInstaller = () => {
       setExcelLocation("");
       setShowAdditionalInputs(false);
       setIsEditing(false);
+      setFsvVehicleId(null);
+      setFsvFormData(null);
 
       // Call the new API endpoint to update isEdited
       if (isEditing) {
@@ -1179,8 +1204,8 @@ const AutoInstaller = () => {
           {/* Conditional Rendering: Table Content Only if NOT Adding New Device AND NOT in FSV Flow */}
           {!showAdditionalInputs && !fsvVehicleId ? (
             <>
-              {/* Pagination and List Controls - Only show if devices exist */}
-              {cameraa.length > 0 && (
+              {/* Pagination and List Controls - Only show if devices exist (HIDDEN AS PER USER REQUEST) */}
+              {false && cameraa.length > 0 && (
                 <>
                   <Flex justify="center" mt={4} mb={5}>
                     <Box
@@ -1308,8 +1333,8 @@ const AutoInstaller = () => {
                 </>
               )}
 
-              {/* Camera List Table */}
-              {filteredCameras
+              {/* Camera List Table (HIDDEN AS PER USER REQUEST) */}
+              {false && filteredCameras
                 .slice(startIndex, endIndex)
                 .map((camera, index) => (
                   <Box
@@ -1629,7 +1654,7 @@ const AutoInstaller = () => {
                 </ModalContent>
               </Modal>
 
-              {cameraa.length > 0 && (
+              {false && cameraa.length > 0 && (
                 <h2
                   style={{
                     display: "flex",
@@ -1919,7 +1944,6 @@ const AutoInstaller = () => {
               <Box position="absolute" top="-20%" left="-10%" w="200px" h="200px" bg="blue.200" filter="blur(90px)" borderRadius="full" opacity="0.5" />
               <Box position="absolute" bottom="-20%" right="-10%" w="200px" h="200px" bg="green.100" filter="blur(90px)" borderRadius="full" opacity="0.4" />
 
-              {cameraa.length === 0 && (
                 <Box position="relative" zIndex={1}>
                   <Flex
                     justify="center"
@@ -1952,7 +1976,6 @@ const AutoInstaller = () => {
                     Click the below button to add new device.
                   </Text>
                 </Box>
-              )}
 
               <Button
                 position="relative"
@@ -1989,29 +2012,44 @@ const AutoInstaller = () => {
               {/* Video Player - Only show if we have a URL */}
               {/* Video Player - Only show if we have a URL */}
               {flvUrl ? (
-                <Box
-                  borderRadius="2xl"
-                  overflow="hidden"
-                  boxShadow="xl"
-                  border="4px solid"
-                  borderColor="gray.100"
-                  bg="black"
-                  mb={6}
-                  transition="all 0.3s"
-                  _hover={{ boxShadow: "2xl" }}
-                  width="100%"
-                  sx={{ aspectRatio: "16/9" }}
-                >
-                  <JessicaStreamPlayer
-                    url={flvUrl}
+                <Flex direction="column" w="100%">
+                  <Flex w="100%" justify="flex-start" mb={4}>
+                    <Button
+                      onClick={handleBackClick}
+                      colorScheme="blue"
+                      variant="ghost"
+                      leftIcon={<MdArrowBack />}
+                      size="sm"
+                      borderRadius="md"
+                      _hover={{ bg: 'blue.50', color: 'blue.700' }}
+                    >
+                      Back to Installer
+                    </Button>
+                  </Flex>
+                  <Box
+                    borderRadius="2xl"
+                    overflow="hidden"
+                    boxShadow="xl"
+                    border="4px solid"
+                    borderColor="gray.100"
+                    bg="black"
+                    mb={6}
+                    transition="all 0.3s"
+                    _hover={{ boxShadow: "2xl" }}
                     width="100%"
-                    height="100%"
-                    onError={(e) => {
-                      console.error("Video Player Error:", e);
-                      // Keep player mounted; Jessica component handles retries and internal fallback text.
-                    }}
-                  />
-                </Box>
+                    sx={{ aspectRatio: "16/9" }}
+                  >
+                    <JessicaStreamPlayer
+                      url={flvUrl}
+                      width="100%"
+                      height="100%"
+                      onError={(e) => {
+                        console.error("Video Player Error:", e);
+                        // Keep player mounted; Jessica component handles retries and internal fallback text.
+                      }}
+                    />
+                  </Box>
+                </Flex>
               ) : null}
 
               {/* Legacy Camera Details Form Removed */}
@@ -2130,6 +2168,7 @@ const AutoInstaller = () => {
                     <Flex
                       align="center"
                       justifyContent="center"
+                      direction="column"
                       p={6}
                       borderRadius="lg"
                       bg="red.50"
@@ -2137,8 +2176,21 @@ const AutoInstaller = () => {
                       border="1px solid"
                       borderColor="red.100"
                     >
-                      <BlinkingWarningIcon boxSize="24px" />
-                      <Text ml={3} fontWeight="bold">AI Status Unavailable. Please try again.</Text>
+                      <Flex align="center">
+                        <BlinkingWarningIcon boxSize="24px" />
+                        <Text ml={3} fontWeight="bold">AI Status Unavailable. Please try again.</Text>
+                      </Flex>
+                      <Button
+                        mt={4}
+                        size="sm"
+                        colorScheme="red"
+                        variant="outline"
+                        onClick={handleAddInputs}
+                        leftIcon={<MdRefresh />}
+                        isLoading={isFetchingCameraDetails}
+                      >
+                        Retry Status Check
+                      </Button>
                     </Flex>
                   )}
                 </Box>
@@ -2363,25 +2415,39 @@ const AutoInstaller = () => {
       {fsvData && (
         <Box mt={8} p={5} borderWidth="1px" borderRadius="lg" bg="white">
           <Heading size="md" mb={4}>FSV Installation Details</Heading>
-          <FsvInstallationForm initialData={fsvData} />
+          <FsvInstallationForm 
+            initialData={fsvData} 
+            onNext={(vehicleId, formData) => {
+              setFsvVehicleId(vehicleId);
+              setFsvFormData(formData);
+            }}
+            onBack={() => {
+              setFsvData(null);
+              handleBackClick();
+            }}
+          />
         </Box>
       )}
 
       {/* FSV Photo Upload Section */}
       {fsvVehicleId && (
-        <FsvPhotoUpload
-          vehicleId={fsvVehicleId}
-          formData={fsvFormData}
-          location={location}
-          onUploadComplete={() => {
-            setShowAdditionalInputs(false);
-            setFsvData(null);
-            setDeviceId("");
-            setFlvUrl("");
-            setCameraStatus(null);
-            navigate('/autoinstaller', { replace: true, state: {} });
-          }}
-        />
+        <Box id="fsv-upload-section">
+          <FsvPhotoUpload
+            vehicleId={fsvVehicleId}
+            formData={fsvFormData}
+            location={location}
+            onUploadComplete={() => {
+              setShowAdditionalInputs(false);
+              setFsvData(null);
+              setDeviceId("");
+              setFlvUrl("");
+              setCameraStatus(null);
+              setFsvVehicleId(null);
+              setFsvFormData(null);
+              navigate('/autoinstaller', { replace: true, state: {} });
+            }}
+          />
+        </Box>
       )}
 
     </Container>

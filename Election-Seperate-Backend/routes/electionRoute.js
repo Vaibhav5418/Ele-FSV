@@ -10,7 +10,7 @@ adiancerouter.route('/login').post(signin);
 adiancerouter.route('/verify').post(verifyOtp);
 adiancerouter.route('/create').post(createCamera);
 adiancerouter.route('/getcamerabydid').get(getCameraByDid);
-adiancerouter.route('/getCamerasByAssignedBy').get(authorizeRolesElection('district'), getCamerasbyAssignedBy);
+adiancerouter.route('/getCamerasByAssignedBy').get(authorizeRolesElection('district', 'admin', 'master'), getCamerasbyAssignedBy);
 adiancerouter.route('/getCamerasByNumber').get(getCamerasbyNumber);
 adiancerouter.route('/assignCamera').post(assignCamera);
 adiancerouter.route('/addData').post(addData);

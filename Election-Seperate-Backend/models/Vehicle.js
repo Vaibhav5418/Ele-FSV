@@ -12,6 +12,7 @@ const vehicleSchema = new mongoose.Schema({
     fstName: { type: String, required: false, default: '' },
     fstMobileNo: { type: String, required: false, default: '' },
     typeOfVehicle: { type: String, required: true },
+    isQrtVehicle: { type: String, enum: ['Yes', 'No'], default: 'No' },
 
     // Equipment & Installation Fields
     ptzCameraModelNumber: { type: String },
@@ -39,8 +40,14 @@ const vehicleSchema = new mongoose.Schema({
     pilPhotoUrl: { type: String },
     localScreenPhotoUrl: { type: String },
     streamScreenshotUrl: { type: String },
-    createdByMobile: { type: String }
+    createdByMobile: { type: String, index: true }
 
 }, { timestamps: true });
+
+vehicleSchema.index({ createdAt: -1 });
+vehicleSchema.index({ districtName: 1 });
+vehicleSchema.index({ acName: 1 });
+vehicleSchema.index({ ptzCameraSerialNumber: 1 });
+vehicleSchema.index({ vehicleNo: 1 });
 
 module.exports = mongoose.model('Vehicle', vehicleSchema);

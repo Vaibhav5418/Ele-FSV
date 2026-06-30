@@ -50,7 +50,7 @@ import {
   ArcElement
 } from 'chart.js';
 import { Bar, Pie, Line } from 'react-chartjs-2';
-import { getAllFsvReports, updateFsvReport, getAuditLogs } from '../actions/userActions';
+import { getAllFsvReports, updateFsvReport, getAuditLogs, getDashboardStats, getDashboardInstallers } from '../actions/userActions';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { Filesystem, Directory } from '@capacitor/filesystem';
@@ -73,6 +73,8 @@ const MasterDashboard = () => {
   const [reports, setReports] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -84,6 +86,12 @@ const MasterDashboard = () => {
   const [endDate, setEndDate] = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
+  // Stats and Installers State
+  const [districtCounts, setDistrictCounts] = useState({});
+  const [statusCounts, setStatusCounts] = useState({ Installed: 0, Pending: 0 });
+  const [dailyCounts, setDailyCounts] = useState({});
+  const [uniqueInstallers, setUniqueInstallers] = useState([]);
+
   // Form State for Edit
   const [editFormData, setEditFormData] = useState({});
 
@@ -93,23 +101,57 @@ const MasterDashboard = () => {
   const [auditLogsTotal, setAuditLogsTotal] = useState(0);
 
   useEffect(() => {
-    fetchData();
+    fetchInstallers();
     fetchAuditLogs();
   }, []);
 
+  useEffect(() => {
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, startDate, endDate, selectedInstaller]);
+
+  const fetchInstallers = async () => {
+    const response = await getDashboardInstallers();
+    if (response.success) {
+      setUniqueInstallers(response.data || []);
+    }
+  };
+
   const fetchData = async () => {
     setIsLoading(true);
-    const response = await getAllFsvReports(startDate, endDate);
-    if (response.success) {
-      setReports(response.data);
-      setCurrentPage(1); // Reset to first page on new data
-    } else {
-      toast({ title: "Error fetching data", description: response.message, status: "error" });
+    try {
+      const filters = {};
+      if (startDate) filters.startDate = startDate;
+      if (endDate) filters.endDate = endDate;
+      if (selectedInstaller) filters.installerMobile = selectedInstaller;
+      
+      const statsPromise = getDashboardStats(filters);
+      const reportsPromise = getAllFsvReports({ ...filters, page: currentPage, limit: itemsPerPage });
+      
+      const [statsRes, reportsRes] = await Promise.all([statsPromise, reportsPromise]);
+      
+      if (statsRes.success) {
+        setDistrictCounts(statsRes.data.districtCounts);
+        setStatusCounts(statsRes.data.statusCounts);
+        setDailyCounts(statsRes.data.dailyCounts);
+      }
+      
+      if (reportsRes.success) {
+        setReports(reportsRes.data);
+        setTotalCount(reportsRes.totalCount);
+        setTotalPages(reportsRes.totalPages);
+      } else {
+        toast({ title: "Error fetching data", description: reportsRes.message, status: "error" });
+      }
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Error", description: "Failed to fetch dashboard data", status: "error" });
     }
     setIsLoading(false);
   };
 
   const handleFilterApply = () => {
+    setCurrentPage(1);
     fetchData();
   };
 
@@ -117,7 +159,7 @@ const MasterDashboard = () => {
     setStartDate('');
     setEndDate('');
     setSelectedInstaller('');
-    fetchData();
+    setCurrentPage(1);
   };
 
   // Helper to safely extract a readable string for the installer name
@@ -125,16 +167,34 @@ const MasterDashboard = () => {
     return r.personName || r.userName || r.installedBy || r.installerName || 'Unknown';
   };
 
-  // 1. Extract unique installers for the dropdown filter
-  const uniqueInstallers = [...new Set(reports.map(r => getInstallerName(r)))].filter(name => name !== 'Unknown').sort();
-
-  // 2. Filter the reports by the selected installer (if any)
-  const filteredReportsByInstaller = selectedInstaller
-    ? reports.filter(r => getInstallerName(r) === selectedInstaller)
-    : reports;
-
   const downloadReport = async () => {
-    const exportData = filteredReportsByInstaller.map(r => ({
+    setIsLoading(true);
+    let allData = [];
+    try {
+        const filters = { isExport: true };
+        if (startDate) filters.startDate = startDate;
+        if (endDate) filters.endDate = endDate;
+        if (selectedInstaller) filters.installerMobile = selectedInstaller;
+
+        const response = await getAllFsvReports(filters);
+        if (response.success) {
+            allData = response.data;
+        } else {
+            throw new Error(response.message);
+        }
+    } catch (error) {
+        setIsLoading(false);
+        toast({ title: "Export Failed", description: error.message, status: "error" });
+        return;
+    }
+    setIsLoading(false);
+
+    if (allData.length === 0) {
+        toast({ title: "No data", description: "No records found to export.", status: "warning" });
+        return;
+    }
+
+    const exportData = allData.map(r => ({
       'Vehicle No': r.vehicleNo,
       'District': r.districtName,
       'AC Name': r.acName,
@@ -181,7 +241,7 @@ const MasterDashboard = () => {
     } else {
       // Web browser: trigger normal file download
       XLSX.writeFile(wb, filename);
-      toast({ title: "Report Downloaded", description: `${filteredReportsByInstaller.length} records exported`, status: "success" });
+      toast({ title: "Report Downloaded", description: `${allData.length} records exported`, status: "success" });
     }
   };
 
@@ -193,10 +253,17 @@ const MasterDashboard = () => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    if (name === 'driverMobileNo') {
+      if (!/^\d{0,10}$/.test(value)) return;
+    }
     setEditFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleUpdate = async () => {
+    if (editFormData.driverMobileNo && editFormData.driverMobileNo.length !== 10) {
+      toast({ title: "Invalid Mobile", description: "Driver mobile must be exactly 10 digits.", status: "error" });
+      return;
+    }
     const response = await updateFsvReport(selectedReport._id, editFormData);
     if (response.success) {
       toast({ title: "Updated Successfully", status: "success" });
@@ -218,25 +285,8 @@ const MasterDashboard = () => {
   };
 
   // --- Visualization Data Preparation ---
-  const districtCounts = {};
-  const statusCounts = { Installed: 0, Pending: 0 };
-  const dailyCounts = {};
+  // The state variables districtCounts, statusCounts, and dailyCounts are already populated via API
 
-  filteredReportsByInstaller.forEach(r => {
-    // District Count
-    const dist = r.districtName || 'Unknown';
-    districtCounts[dist] = (districtCounts[dist] || 0) + 1;
-
-    // Status Count
-    const isInstalled = r.vehiclePhotoUrl ? 'Installed' : 'Pending';
-    statusCounts[isInstalled]++;
-
-    // Daily Count
-    if (r.createdAt) {
-      const date = new Date(r.createdAt).toLocaleDateString('en-IN');
-      dailyCounts[date] = (dailyCounts[date] || 0) + 1;
-    }
-  });
 
   // Sort daily counts by date
   const sortedDates = Object.keys(dailyCounts).sort((a, b) => new Date(a) - new Date(b));
@@ -295,7 +345,7 @@ const MasterDashboard = () => {
             aria-label="Toggle Filters"
             size={{ base: "sm", md: "md" }}
           />
-          <Button size={{ base: "sm", md: "md" }} leftIcon={<FaDownload />} colorScheme="green" onClick={downloadReport} isDisabled={filteredReportsByInstaller.length === 0}>
+          <Button size={{ base: "sm", md: "md" }} leftIcon={<FaDownload />} colorScheme="green" onClick={downloadReport} isDisabled={totalCount === 0 || isLoading}>
             Download Report
           </Button>
           <Button size={{ base: "sm", md: "md" }} onClick={() => navigate('/autoinstaller')}>Back to Installer</Button>
@@ -337,22 +387,22 @@ const MasterDashboard = () => {
       <SimpleGrid columns={{ base: 1, md: 4 }} spacing={4} mb={6}>
         <Stat p={4} bg="white" borderRadius="lg" boxShadow="sm">
           <StatLabel>Total Installations</StatLabel>
-          <StatNumber>{filteredReportsByInstaller.length}</StatNumber>
+          <StatNumber>{totalCount}</StatNumber>
           <StatHelpText>{startDate || endDate || selectedInstaller ? 'Filtered' : 'All Time'}</StatHelpText>
         </Stat>
         <Stat p={4} bg="white" borderRadius="lg" boxShadow="sm">
           <StatLabel>Installed</StatLabel>
           <StatNumber>{statusCounts.Installed}</StatNumber>
-          <StatHelpText>{((statusCounts.Installed / filteredReportsByInstaller.length) * 100 || 0).toFixed(1)}%</StatHelpText>
+          <StatHelpText>{((statusCounts.Installed / totalCount) * 100 || 0).toFixed(1)}%</StatHelpText>
         </Stat>
         <Stat p={4} bg="white" borderRadius="lg" boxShadow="sm">
           <StatLabel>Pending</StatLabel>
           <StatNumber>{statusCounts.Pending}</StatNumber>
-          <StatHelpText>{((statusCounts.Pending / filteredReportsByInstaller.length) * 100 || 0).toFixed(1)}%</StatHelpText>
+          <StatHelpText>{((statusCounts.Pending / totalCount) * 100 || 0).toFixed(1)}%</StatHelpText>
         </Stat>
         <Stat p={4} bg="white" borderRadius="lg" boxShadow="sm">
           <StatLabel>Avg Per Day</StatLabel>
-          <StatNumber>{Object.keys(dailyCounts).length > 0 ? (filteredReportsByInstaller.length / Object.keys(dailyCounts).length).toFixed(1) : 0}</StatNumber>
+          <StatNumber>{Object.keys(dailyCounts).length > 0 ? (totalCount / Object.keys(dailyCounts).length).toFixed(1) : 0}</StatNumber>
           <StatHelpText>Based on active days</StatHelpText>
         </Stat>
       </SimpleGrid>
@@ -391,7 +441,7 @@ const MasterDashboard = () => {
               <Flex justifyContent="space-between" alignItems="center" mb={6}>
                 <Heading size="md" color="gray.700">Vehicle Installation Details</Heading>
                 <Badge colorScheme="blue" fontSize="sm" p={1} borderRadius="md">
-                  Total: {filteredReportsByInstaller.length}
+                  Total: {totalCount}
                 </Badge>
               </Flex>
 
@@ -409,9 +459,7 @@ const MasterDashboard = () => {
                     </Tr>
                   </Thead>
                   <Tbody>
-                    {filteredReportsByInstaller
-                      .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                      .map((report) => (
+                    {reports.map((report) => (
                         <Tr key={report._id} _hover={{ bg: "gray.50", transition: "all 0.2s" }}>
                           <Td fontWeight="medium" color="gray.700">{report.vehicleNo}</Td>
                           <Td color="gray.600">{report.districtName}</Td>
@@ -441,7 +489,7 @@ const MasterDashboard = () => {
                           </Td>
                         </Tr>
                       ))}
-                    {filteredReportsByInstaller.length === 0 && (
+                    {reports.length === 0 && (
                       <Tr>
                         <Td colSpan={6} textAlign="center" py={8} color="gray.500">
                           No records found
@@ -454,9 +502,7 @@ const MasterDashboard = () => {
 
               {/* Mobile View - Cards */}
               <Box display={{ base: 'block', md: 'none' }}>
-                {filteredReportsByInstaller
-                  .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                  .map((report) => (
+                {reports.map((report) => (
                     <Box
                       key={report._id}
                       p={4}
@@ -502,7 +548,7 @@ const MasterDashboard = () => {
                       </Button>
                     </Box>
                   ))}
-                {filteredReportsByInstaller.length === 0 && (
+                {reports.length === 0 && (
                   <Box textAlign="center" py={8} color="gray.500">
                     No records found
                   </Box>
@@ -510,7 +556,7 @@ const MasterDashboard = () => {
               </Box>
 
               {/* Pagination Controls */}
-              {filteredReportsByInstaller.length > 0 && (
+              {totalCount > 0 && (
                 <Flex
                   direction={{ base: 'column', md: 'row' }}
                   justifyContent="space-between"
@@ -522,7 +568,7 @@ const MasterDashboard = () => {
                   gap={4}
                 >
                   <Text fontSize="sm" color="gray.500">
-                    Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredReportsByInstaller.length)} of {filteredReportsByInstaller.length} entries
+                    Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} entries
                   </Text>
                   <Flex gap={2}>
                     <Button
@@ -535,9 +581,8 @@ const MasterDashboard = () => {
                     </Button>
                     {/* Hide page numbers on mobile to save space, show simple Prev/Next */}
                     <Box display={{ base: 'none', md: 'flex' }} gap={2}>
-                      {[...Array(Math.min(5, Math.ceil(filteredReportsByInstaller.length / itemsPerPage)))].map((_, idx) => {
+                      {[...Array(Math.min(5, totalPages))].map((_, idx) => {
                         let pageNum;
-                        const totalPages = Math.ceil(filteredReportsByInstaller.length / itemsPerPage);
 
                         if (totalPages <= 5) {
                           pageNum = idx + 1;
@@ -564,8 +609,8 @@ const MasterDashboard = () => {
                     </Box>
                     <Button
                       size="sm"
-                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(filteredReportsByInstaller.length / itemsPerPage)))}
-                      isDisabled={currentPage >= Math.ceil(filteredReportsByInstaller.length / itemsPerPage)}
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      isDisabled={currentPage >= totalPages}
                       variant="outline"
                     >
                       Next
@@ -630,9 +675,12 @@ const MasterDashboard = () => {
               <FormLabel>Driver Name</FormLabel>
               <Input name="driverName" value={editFormData.driverName || ''} onChange={handleInputChange} />
             </FormControl>
-            <FormControl mb={3}>
+            <FormControl mb={3} isInvalid={editFormData.driverMobileNo && editFormData.driverMobileNo.length > 0 && editFormData.driverMobileNo.length !== 10}>
               <FormLabel>Driver Mobile</FormLabel>
-              <Input name="driverMobileNo" value={editFormData.driverMobileNo || ''} onChange={handleInputChange} />
+              <Input name="driverMobileNo" type="tel" value={editFormData.driverMobileNo || ''} onChange={handleInputChange} />
+              <Text color="red.500" fontSize="xs" mt={1.5} fontWeight="semibold" display={editFormData.driverMobileNo && editFormData.driverMobileNo.length > 0 && editFormData.driverMobileNo.length !== 10 ? "block" : "none"}>
+                Driver mobile must be exactly 10 digits.
+              </Text>
             </FormControl>
             <FormControl mb={3}>
               <FormLabel>District</FormLabel>

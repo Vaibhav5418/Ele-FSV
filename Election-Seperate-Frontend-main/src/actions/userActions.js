@@ -51,7 +51,9 @@ export const getCameraStatus = async (deviceId) => {
     console.log("getCameraStatus response", response.data);
     return response.data;
   } catch (error) {
-    console.error("Error fetching camera status:", error);
+    if (error.code !== 'ERR_NETWORK' && error.message !== 'Network Error') {
+      console.error("Error fetching camera status:", error);
+    }
     return { success: false, message: error.message || "Failed to fetch camera status" };
   }
 };
@@ -980,7 +982,9 @@ export const createFsvReport = async (data) => {
     return response.data;
   } catch (error) {
     console.error(error);
-    return { success: false, message: error.message };
+    // Extract the actual backend message from the response body if available
+    const backendMessage = error?.response?.data?.message || error.message;
+    return { success: false, message: backendMessage };
   }
 };
 
@@ -1016,13 +1020,29 @@ export const getFsvSuggestions = async (query) => {
   }
 };
 
-export const getAllFsvReports = async (startDate = null, endDate = null) => {
+export const getDashboardStats = async (filters = {}) => {
   try {
-    const params = {};
-    if (startDate) params.startDate = startDate;
-    if (endDate) params.endDate = endDate;
+    const response = await instance.get('/api/fsv/dashboard/stats', { params: filters });
+    return response.data;
+  } catch (error) {
+    console.error(error);
+    return { success: false, message: error.message };
+  }
+};
 
-    const response = await instance.get(`/api/fsv/all/reports`, { params });
+export const getDashboardInstallers = async () => {
+  try {
+    const response = await instance.get('/api/fsv/dashboard/installers');
+    return response.data;
+  } catch (error) {
+    console.error(error);
+    return { success: false, message: error.message };
+  }
+};
+
+export const getAllFsvReports = async (filters = {}) => {
+  try {
+    const response = await instance.get(`/api/fsv/all/reports`, { params: filters });
     return response.data;
   } catch (error) {
     console.error(error);
@@ -1032,7 +1052,8 @@ export const getAllFsvReports = async (startDate = null, endDate = null) => {
 
 export const updateFsvReport = async (id, data) => {
   try {
-    const response = await instance.put(`/api/fsv/update/${id}`, data);
+    const mobile = localStorage.getItem('mobile');
+    const response = await instance.put(`/api/fsv/update/${id}?mobile=${mobile}`, data);
     return response.data;
   } catch (error) {
     console.error(error);
@@ -1051,14 +1072,39 @@ export const getAuditLogs = async (page = 1, limit = 50, filters = {}) => {
   }
 };
 
-export const getUserInstallations = async () => {
+export const getUserInstallations = async (params = {}) => {
   try {
     const mobile = localStorage.getItem('mobile');
-    const response = await instance.get(`/api/fsv/my-installations?mobile=${mobile}`);
+    const queryParams = { mobile, ...params };
+    const response = await instance.get('/api/fsv/my-installations', { params: queryParams });
     return response.data;
   } catch (error) {
     console.error(error);
     return { success: false, message: error.message || 'Failed to fetch installations' };
+  }
+};
+
+export const getFsvInstallationSummary = async (filters = {}) => {
+  try {
+    const mobile = localStorage.getItem('mobile');
+    const params = { mobile, ...filters };
+    const response = await instance.get('/api/fsv/installations/summary', { params });
+    return response.data;
+  } catch (error) {
+    console.error(error);
+    return { success: false, message: error.message || 'Failed to fetch summary' };
+  }
+};
+
+export const getFsvInstallationDetails = async (filters = {}) => {
+  try {
+    const mobile = localStorage.getItem('mobile');
+    const params = { mobile, ...filters };
+    const response = await instance.get('/api/fsv/installations/details', { params });
+    return response.data;
+  } catch (error) {
+    console.error(error);
+    return { success: false, message: error.message || 'Failed to fetch details' };
   }
 };
 
@@ -1080,16 +1126,53 @@ export const getSavedAiStatusRecord = async (deviceId) => {
   }
 };
 
-export const getUsersInstallationReport = async (startDate, endDate) => {
+export const getUsersInstallationReport = async (startDate = '', endDate = '', district = '', assemblyName = '') => {
   try {
-    const params = {};
-    if (startDate) params.startDate = startDate;
-    if (endDate) params.endDate = endDate;
-
+    const params = { startDate, endDate, district, assemblyName };
     const response = await instance.get('/api/fsv/reports/user-installations', { params });
     return response.data;
   } catch (error) {
     console.error("Error fetching users installation report:", error);
     return { success: false, message: error.message };
+  }
+};
+export const getUsersInstallationReportFilters = async (district = '') => {
+  try {
+    const params = district ? { district } : {};
+    const response = await instance.get('/api/fsv/reports/user-installations/filters', { params });
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching users installation report filters:", error);
+    return { success: false, message: error.message };
+  }
+};
+export const checkVehicleExists = async (vehicleNo) => {
+  try {
+    const response = await instance.get(`/api/fsv/check-vehicle/${vehicleNo}`);
+    return response.data;
+  } catch (error) {
+    console.error("Error checking vehicle number:", error);
+    return { success: false, exists: false, message: error.message };
+  }
+};
+
+export const checkCameraExists = async (cameraId) => {
+  try {
+    const response = await instance.get(`/api/fsv/check-camera/${cameraId}`);
+    return response.data;
+  } catch (error) {
+    console.error("Error checking camera ID:", error);
+    return { success: false, exists: false, message: error.message };
+  }
+};
+
+export const deleteFsvInstallation = async (id) => {
+  try {
+    const mobile = localStorage.getItem('mobile');
+    const response = await instance.delete(`/api/fsv/delete/${id}?mobile=${mobile}`);
+    return response.data;
+  } catch (error) {
+    console.error("Error deleting installation:", error);
+    return { success: false, message: error.message || 'Failed to delete installation' };
   }
 };

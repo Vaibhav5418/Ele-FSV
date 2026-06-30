@@ -8,14 +8,13 @@ import {
     Input,
     Button,
     SimpleGrid,
-    Flex,
+    VStack,
     useToast,
     Divider,
     Stat,
     StatLabel,
     StatNumber,
     StatGroup,
-    VStack,
 } from '@chakra-ui/react';
 import { FaFileExcel } from 'react-icons/fa';
 import { getUserInstallations } from '../actions/userActions';
@@ -24,68 +23,36 @@ import * as XLSX from 'xlsx';
 import * as FileSaver from 'file-saver';
 
 const InstallationReport = () => {
-    const [installations, setInstallations] = useState([]);
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+    const [totalCount, setTotalCount] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
     const toast = useToast();
 
+    // Fetch the count of matching records whenever the dates change
     useEffect(() => {
-        fetchInstallations();
-    }, []);
+        fetchCount();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [startDate, endDate]);
 
-    const fetchInstallations = async () => {
+    const fetchCount = async () => {
         setIsLoading(true);
         try {
-            const result = await getUserInstallations();
+            // limit: 1 ensures we just get totalCount quickly without transferring data
+            const result = await getUserInstallations({ startDate, endDate, limit: 1 });
             if (result.success) {
-                setInstallations(result.data);
-            } else {
-                toast({
-                    title: 'Error',
-                    description: result.message || 'Failed to fetch installations',
-                    status: 'error',
-                    duration: 3000
-                });
+                setTotalCount(result.totalCount || 0);
             }
         } catch (error) {
-            console.error('Error fetching installations:', error);
-            toast({
-                title: 'Error',
-                description: 'An error occurred while fetching installations',
-                status: 'error',
-                duration: 3000
-            });
+            console.error('Error fetching count:', error);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const getFilteredData = () => {
-        return installations.filter((installation) => {
-            if (!startDate && !endDate) return true;
-
-            const instDate = new Date(installation.createdAt || installation.installationDate);
-            instDate.setHours(0, 0, 0, 0);
-
-            if (startDate) {
-                const start = new Date(startDate);
-                start.setHours(0, 0, 0, 0);
-                if (instDate < start) return false;
-            }
-            if (endDate) {
-                const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999);
-                if (instDate > end) return false;
-            }
-            return true;
-        });
-    };
-
-    const handleDownloadExcel = () => {
-        const filtered = getFilteredData();
-
-        if (filtered.length === 0) {
+    const handleDownloadExcel = async () => {
+        if (totalCount === 0) {
             toast({
                 title: "No data found for selected range",
                 status: "warning",
@@ -95,39 +62,63 @@ const InstallationReport = () => {
             return;
         }
 
-        const fileType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8';
-        const fileExtension = '.xlsx';
+        setIsDownloading(true);
+        try {
+            // isExport=true bypasses the 100-limit cap on the backend
+            const result = await getUserInstallations({ startDate, endDate, isExport: true });
+            
+            if (result.success && result.data.length > 0) {
+                const filtered = result.data;
+                const fileType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8';
+                const fileExtension = '.xlsx';
 
-        const formattedData = filtered.map(inst => ({
-            "Vehicle No": inst.vehicleNo,
-            "District": inst.districtName,
-            "AC Name": inst.acName,
-            "Driver Name": inst.driverName,
-            "Driver Mobile": inst.driverMobileNo,
-            "PTZ Camera ID": inst.ptzCameraSerialNumber || '—',
-            "GPS No.": inst.gpsDeviceSerialNo || '—',
-            "Router No.": inst.internet4GRouterSimNo || '—',
-            "Installation Date": inst.installationDate,
-            "Submission Time": new Date(inst.createdAt).toLocaleString(),
-            "Site Address": inst.installationSiteAddress,
-            "Status": inst.vehiclePhotoUrl ? 'Completed' : 'Pending'
-        }));
+                const formattedData = filtered.map(inst => ({
+                    "Vehicle No": inst.vehicleNo,
+                    "District": inst.districtName,
+                    "AC Name": inst.acName,
+                    "Driver Name": inst.driverName,
+                    "Driver Mobile": inst.driverMobileNo,
+                    "PTZ Camera ID": inst.ptzCameraSerialNumber || '—',
+                    "GPS No.": inst.gpsDeviceSerialNo || '—',
+                    "Router No.": inst.internet4GRouterSimNo || '—',
+                    "Installation Date": inst.installationDate,
+                    "Submission Time": new Date(inst.createdAt).toLocaleString(),
+                    "Site Address": inst.installationSiteAddress,
+                    "Status": inst.vehiclePhotoUrl ? 'Completed' : 'Pending'
+                }));
 
-        const ws = XLSX.utils.json_to_sheet(formattedData);
-        const wb = { Sheets: { 'data': ws }, SheetNames: ['data'] };
-        const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        const data = new Blob([excelBuffer], { type: fileType });
-        FileSaver.saveAs(data, `My_Installations_Report_${new Date().toLocaleDateString()}${fileExtension}`);
+                const ws = XLSX.utils.json_to_sheet(formattedData);
+                const wb = { Sheets: { 'data': ws }, SheetNames: ['data'] };
+                const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                const data = new Blob([excelBuffer], { type: fileType });
+                FileSaver.saveAs(data, `My_Installations_Report_${new Date().toLocaleDateString()}${fileExtension}`);
 
-        toast({
-            title: "Report Downloaded",
-            description: `${filtered.length} records exported successfully.`,
-            status: "success",
-            duration: 3000
-        });
+                toast({
+                    title: "Report Downloaded",
+                    description: `${filtered.length} records exported successfully.`,
+                    status: "success",
+                    duration: 3000
+                });
+            } else {
+                toast({
+                    title: "Export Failed",
+                    description: result.message || "Failed to fetch data for export",
+                    status: "error",
+                    duration: 3000
+                });
+            }
+        } catch (error) {
+            console.error('Download error:', error);
+            toast({
+                title: "Export Failed",
+                description: "An error occurred during export",
+                status: "error",
+                duration: 3000
+            });
+        } finally {
+            setIsDownloading(false);
+        }
     };
-
-    const filteredCount = getFilteredData().length;
 
     return (
         <Container maxW="container.md" py={10}>
@@ -174,7 +165,7 @@ const InstallationReport = () => {
                         <StatGroup>
                             <Stat>
                                 <StatLabel color="blue.700">Total Installations in Range</StatLabel>
-                                <StatNumber color="blue.800">{isLoading ? '...' : filteredCount}</StatNumber>
+                                <StatNumber color="blue.800">{isLoading ? '...' : totalCount}</StatNumber>
                             </Stat>
                         </StatGroup>
                     </Box>
@@ -187,17 +178,17 @@ const InstallationReport = () => {
                         fontSize="md"
                         borderRadius="xl"
                         onClick={handleDownloadExcel}
-                        isLoading={isLoading}
-                        isDisabled={installations.length === 0}
+                        isLoading={isDownloading}
+                        isDisabled={totalCount === 0 || isLoading}
                         shadow="lg"
                         _hover={{ transform: 'translateY(-2px)', shadow: 'xl' }}
                     >
                         Download Excel Report
                     </Button>
 
-                    {installations.length === 0 && !isLoading && (
+                    {totalCount === 0 && !isLoading && (
                         <Text textAlign="center" color="orange.500" fontSize="sm">
-                            No installations found for your account.
+                            No installations found for selected date range.
                         </Text>
                     )}
                 </VStack>

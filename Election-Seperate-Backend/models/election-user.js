@@ -51,9 +51,16 @@ const userSchema = new mongoose.Schema({
     },
     formatted_address2: {
         type: String
-    }
+    },
+    assignedCameras: [{
+        type: mongoose.Schema.Types.Mixed
+    }]
 });
 
 const electionUser = mongoose.model('election-users', userSchema);
+
+userSchema.index({ district: 1 });
+userSchema.index({ assemblyName: 1 });
+userSchema.index({ stateAssigned: 1 });
 
 module.exports = electionUser;

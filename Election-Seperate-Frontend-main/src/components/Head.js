@@ -158,7 +158,7 @@ const Head = () => {
               `https://api.opencagedata.com/geocode/v1/json?q=${latitude}+${longitude}&key=6da09e29dbc54d859e03bca9a9737461`
             );
 
-            const responsee = await axios.get(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=zaSyBNBVfpAQqikexY-8J0QDyBR4bWKiKe`);
+            const responsee = await axios.get(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=AIzaSyBNBVfpAQqikexY-8J0QDyBR4bWKiKe`);
             setAddress(responsee.data.results[0].formatted_address)
             console.log("su ke yogi", responsee.data)
 
@@ -478,6 +478,7 @@ const Head = () => {
         });
       });
     };
+    window.initMap = initMap;
 
     if (window.google && window.google.maps) {
       initMap();
@@ -695,10 +696,10 @@ const Head = () => {
 
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             {/* {currentPage}/{totalPages} */}
-            <Button sx={{ marginRight: '5px' }} hidden={currentPage === 1} onClick={handlePrevClick} startIcon={<MdAdd />} >
+            <Button sx={{ marginRight: '5px' }} hidden={currentPage === 1} onClick={handlePrevClick} leftIcon={<MdAdd />} >
               {loadingPrev ? <CircularProgress isIndeterminate size={10} /> : 'Prev'}
             </Button>
-            <Button hidden={currentPage === totalPages} onClick={handleNextClick} startIcon={<MdAdd />} >
+            <Button hidden={currentPage === totalPages} onClick={handleNextClick} leftIcon={<MdAdd />} >
               {loadingNext ? <CircularProgress isIndeterminate size={10} /> : 'Next'}
             </Button>
           </div>

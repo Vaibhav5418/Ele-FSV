@@ -8,6 +8,12 @@ const config: CapacitorConfig = {
     allowMixedContent: true,
     webContentsDebuggingEnabled: true,
   },
+  ios: {
+    contentInset: 'automatic',
+    allowsLinkPreview: true,
+    scrollEnabled: true,
+    scheme: 'ESP-Vmukti',
+  },
   server: {
     cleartext: true, 
     url:"https://esp.vmukti.com",

@@ -255,6 +255,7 @@ const Installed = () => {
         });
       });
     };
+    window.initMap = initMap;
 
     if (window.google && window.google.maps) {
       initMap();

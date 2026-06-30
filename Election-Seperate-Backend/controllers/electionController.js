@@ -1,6 +1,6 @@
-const Booth = require('../models/election-booth-data');
+const Booth = require('../models/camera');
 const Fsv = require('../models/election-fsv');
-const EleCamera = require('../models/election-camera');
+// Removed EleCamera dependency
 const EleFlv = require('../models/election-flv-data');
 const sendToken = require("../utils/jwtToken");
 const axios = require('axios')
@@ -14,27 +14,61 @@ const Elehistory = require('../models/election-history');
 const { VUtil_decodeGetConfigMsg, VUtil_encodeMsgHeader, VUtil_decodeMsgHeader, VUtil_getStreamId, VUtil_encodeMsg } = require('./script/vutil');
 const Attend = require('../models/election-attendance');
 const moment = require('moment');
-const EleUserhistory = require('../models/ele-user-latlong-history');
 const elePhaseOneData = require('../models/phaseonedata');
 const EleReboot = require('../models/election-reboot');
 const punjabElection = require('../models/election-users-punjab');
 const AiStatus = require('../models/AiStatus');
+const Stream = require('../models/Stream');
+
+// Helper to count cameras inside the assignedCameras array
+const countCameras = async (query) => {
+    if (!query) query = {};
+    const matchQuery = {};
+    for (const key in query) {
+        matchQuery[`assignedCameras.${key}`] = query[key];
+    }
+    const pipeline = [
+        { $unwind: "$assignedCameras" },
+        { $match: matchQuery },
+        { $count: "total" }
+    ];
+    const result = await electionUser.aggregate(pipeline);
+    return result.length > 0 ? result[0].total : 0;
+};
+
+// Helper to find cameras inside the assignedCameras array
+const findCameras = async (query, skip = 0, limit = 0) => {
+    if (!query) query = {};
+    const matchQuery = {};
+    for (const key in query) {
+        matchQuery[`assignedCameras.${key}`] = query[key];
+    }
+    const pipeline = [
+        { $unwind: "$assignedCameras" },
+        { $match: matchQuery },
+        { $replaceRoot: { newRoot: "$assignedCameras" } }
+    ];
+    if (skip) pipeline.push({ $skip: skip });
+    if (limit) pipeline.push({ $limit: limit });
+    
+    return await electionUser.aggregate(pipeline);
+};
 
 exports.setIsEdited = async (req, res) => {
     try {
         const { deviceId } = req.params;
 
-        const updatedCamera = await EleCamera.findOneAndUpdate(
-            { deviceId: deviceId },
-            { $set: { isEdited: 1 } }, // Set isEdited to 1
-            { new: true }
-        );
-
-        if (!updatedCamera) {
+        const user = await electionUser.findOne({ "assignedCameras.deviceId": deviceId });
+        if (!user) {
             return res.status(404).json({ success: false, message: "Camera not found" });
         }
 
-        res.status(200).json({ success: true, data: updatedCamera });
+        const cameraIndex = user.assignedCameras.findIndex(c => c.deviceId === deviceId);
+        user.assignedCameras[cameraIndex].isEdited = 1;
+        user.markModified('assignedCameras');
+        await user.save();
+
+        res.status(200).json({ success: true, data: user.assignedCameras[cameraIndex] });
 
     } catch (error) {
         console.error("Error updating isEdited:", error);
@@ -64,7 +98,7 @@ exports.getCameraStatus = async (req, res) => {
 // Cameras 
 exports.getCameras = async (req, res, next) => {
     try {
-        const cameras = await EleCamera.find()
+        const cameras = await findCameras()
 
         res.status(200).json({
             success: true,
@@ -100,46 +134,8 @@ exports.getLocation = async (req, res, next) => {
 
 exports.getCameraById = async (req, res, next) => {
     try {
-        const cameras = await EleCamera.find({ personMobile: req.query.personMobile, installed_status: 1 });
-
-        // for (let camera of cameras) {
-        //     try {
-        // let LastSeenResponse = await axios.get(`https://tn2023demo.vmukti.com/Stream/GetCameraDatatest?cameraId=${camera.deviceId}`);
-
-        // // Extracting LastSeen dates and Status from the API response
-        // const lastSeenDates = LastSeenResponse.data.map(item => ({
-        //     date: new Date(item.LastSeen),
-        //     status: item.Status
-        // }));
-
-        // // Finding the item with the latest LastSeen date
-        // const latestItem = lastSeenDates.reduce((prev, current) => (prev.date > current.date) ? prev : current);
-
-        // // Format the date into "dd/mm/yyyy hh/mm/ss" format
-        //         const formattedDate = latestItem.date.toLocaleString('en-GB', {
-        //             day: '2-digit',
-        //             month: '2-digit',
-        //             year: 'numeric',
-        //             hour: '2-digit',
-        //             minute: '2-digit',
-        //             second: '2-digit'
-        //         });
-
-        //         // Assigning the formatted date and status to the camera document
-        //         camera.lastSeen = formattedDate;
-        //         camera.status = latestItem.status;
-
-        //         // Update the date and status fields with the last seen date and status
-        //         await camera.save();
-
-        //         console.log("Last live", camera.lastSeen);
-        //         console.log("Status", camera.status);
-        //     } catch (error) {
-        //         console.error("Error fetching LastSeen:", error.message);
-        //         // Handle error if needed
-        //     }
-        // }
-
+        const user = await electionUser.findOne({ mobile: req.query.personMobile });
+        const cameras = user && user.assignedCameras ? user.assignedCameras.filter(c => c.installed_status === 1 || c.installed_status === "1") : [];
 
         return res.status(200).json({
             success: true,
@@ -158,34 +154,33 @@ exports.updateCamera = async (req, res, next) => {
     const deviceId = req.params.id;
 
     try {
-        const camera = await EleCamera.findOne({ deviceId });
-        console.log("camera", camera);
-        if (!camera) {
+        const user = await electionUser.findOne({ "assignedCameras.deviceId": deviceId });
+        if (!user) {
             return res.status(404).json({
                 success: false,
                 error: 'Camera not found'
             });
         }
 
-        const updatedCamera = await EleCamera.updateOne(
-            { deviceId: deviceId }, // Assuming you are updating based on the document's ID
-            { $set: req.body } // Use $set to update only the specified fields in req.body
-        );
+        const cameraIndex = user.assignedCameras.findIndex(c => c.deviceId === deviceId);
+        let updatedCamera = { ...user.assignedCameras[cameraIndex], ...req.body };
+        user.assignedCameras[cameraIndex] = updatedCamera;
+        user.markModified('assignedCameras');
+        await user.save();
 
-
-        let hist = { ...camera.toObject() };
-        delete hist._id;
-        hist.actionType = 'update camera';
-        hist.personName = req.body.personName;
-        hist.personMobile = req.body.personMobile;
-        let CreateHistory = await Elehistory.create(hist);
+        // let hist = { ...updatedCamera };
+        // delete hist._id;
+        // hist.actionType = 'update camera';
+        // hist.personName = req.body.personName;
+        // hist.personMobile = req.body.personMobile;
+        // let CreateHistory = await Elehistory.create(hist);
 
         res.status(200).json({
             success: true,
             data: updatedCamera
         });
     } catch (error) {
-        res.status(400).json({
+        res.status(500).json({
             success: false,
             error: error.message
         });
@@ -195,52 +190,82 @@ exports.updateCamera = async (req, res, next) => {
 
 exports.createCamera = async (req, res, next) => {
     try {
-        // console.log(req.body)
         let deviceId = req.body.deviceId;
         console.log("deviceId:", deviceId); // For debugging
 
-        // Search for existing camera
-        const existingCamera = await EleCamera.findOne({ deviceId: deviceId });
-
-        // Find EleFlv record matching the deviceId
-        const getFlv = await EleFlv.findOne({ streamname: deviceId });
+        // Find Stream record matching the deviceId
+        const getFlv = await Stream.findOne({ deviceId: deviceId });
         console.log("getFlvurl2", getFlv); // For debugging
 
         if (!getFlv) {
-            // If EleFlv record not found, handle the error
-            throw new Error("EleFlv record not found for deviceId: " + deviceId);
+            // If Stream record not found, handle the error
+            throw new Error("Stream record not found for deviceId: " + deviceId);
         }
 
-        if (!existingCamera) {
-            // Camera doesn't exist, create a new one
-            let newCamera = await EleCamera.create({ ...req.body, flvUrl: getFlv.url2 });
-            res.status(200).json({
-                success: true,
-                data: newCamera
-            });
+        let user = await electionUser.findOne({ mobile: req.body.personMobile });
+        if (!user) {
+            throw new Error("User not found with mobile: " + req.body.personMobile);
+        }
 
-            let hist = { ...newCamera.toObject() };
+        // Initialize array if it doesn't exist
+        if (!user.assignedCameras) {
+            user.assignedCameras = [];
+        }
+
+        let existingCameraIndex = user.assignedCameras.findIndex(c => c.deviceId === deviceId);
+
+        if (existingCameraIndex === -1) {
+            // Camera doesn't exist, create a new one
+            let newCamera = { ...req.body, flvUrl: getFlv.mediaUrl };
+            user.assignedCameras.push(newCamera);
+            await user.save();
+
+            let hist = { ...newCamera };
             delete hist._id;
             hist.actionType = 'installed camera';
             hist.personName = req.body.personName;
             hist.personMobile = req.body.personMobile;
-            let CreateHistory = await Elehistory.create(hist);
+            
+            try {
+                const VehicleLog = require('../models/VehicleLog');
+                await VehicleLog.findOneAndUpdate(
+                    { vehicleNo: deviceId },
+                    { $push: { history: hist } },
+                    { upsert: true, new: true }
+                );
+            } catch (logErr) {
+                console.error("History log failed:", logErr.message);
+            }
+
+            return res.status(200).json({
+                success: true,
+                data: newCamera
+            });
         } else {
             // Camera exists, update its values
-            const updatedCamera = await EleCamera.findOneAndUpdate(
-                { deviceId: deviceId },
-                { $set: { ...req.body, flvUrl: getFlv.url2 } },
-                { new: true } // To return the updated document
-            );
+            let updatedCamera = { ...user.assignedCameras[existingCameraIndex], ...req.body, flvUrl: getFlv.mediaUrl };
+            user.assignedCameras[existingCameraIndex] = updatedCamera;
+            user.markModified('assignedCameras');
+            await user.save();
 
-            let hist = { ...updatedCamera.toObject() };
+            let hist = { ...updatedCamera };
             delete hist._id;
             hist.actionType = 'updated installed camera';
             hist.personName = req.body.personName;
             hist.personMobile = req.body.personMobile;
-            let CreateHistory = await Elehistory.create(hist);
+            
+            try {
+                const VehicleLog = require('../models/VehicleLog');
+                await VehicleLog.findOneAndUpdate(
+                    { vehicleNo: deviceId },
+                    { $push: { history: hist } },
+                    { upsert: true, new: true }
+                );
+            } catch (logErr) {
+                console.error("History log failed:", logErr.message);
+            }
 
-            res.status(200).json({
+            return res.status(200).json({
                 success: true,
                 data: updatedCamera
             });
@@ -262,24 +287,30 @@ exports.removeEleCamera = async (req, res, next) => {
         let deviceId = req.query.deviceId;
         // console.log("deviceId:", deviceId); // For debugging
 
-        // Search for existing camera
-        const existingCamera = await EleCamera.findOne({ deviceId: deviceId });
+        // Search for existing camera inside a user's assignedCameras
+        const user = await electionUser.findOne({ "assignedCameras.deviceId": deviceId });
 
-        if (!existingCamera) {
+        if (!user) {
             return res.status(401).json({
                 success: false,
                 data: 'camera not installed or already removed'
             });
         }
-        let hist = { ...existingCamera.toObject() };
-        delete hist._id;
-        hist.actionType = 'removed installed camera';
-        hist.personName = req.body.personName;
-        hist.personMobile = req.body.personMobile;
-        let CreateHistory = await Elehistory.create(hist);
+        
+        const cameraIndex = user.assignedCameras.findIndex(c => c.deviceId === deviceId);
+        let existingCamera = user.assignedCameras[cameraIndex];
+        
+        // let hist = { ...existingCamera };
+        // delete hist._id;
+        // hist.actionType = 'removed installed camera';
+        // hist.personName = req.body.personName;
+        // hist.personMobile = req.body.personMobile;
+        // let CreateHistory = await Elehistory.create(hist);
 
         existingCamera.installed_status = 0;
-        existingCamera.save()
+        user.assignedCameras[cameraIndex] = existingCamera;
+        user.markModified('assignedCameras');
+        await user.save();
 
 
         res.status(200).json({
@@ -378,22 +409,10 @@ exports.verifyOtp = async (req, res, next) => {
             // Successful OTP verification
             delete otpStorage[mobile];
 
-            let punjabInstaller = await punjabElection.findOne({ mobile: parseInt(mobile) })
-            console.log(punjabInstaller, "punjabInstaller")
-            if (punjabInstaller) {
-                user.role = 'punjabInstaller'
-                user.state = 'PUNJAB',
-                    user.district = punjabInstaller.district,
-                    user.assemblyName = punjabInstaller.assemblyName,
-
-                    await user.save();
-                console.log(user, "user")
-
-                return res.json({ success: true, role: user.role, message: 'OTP verified successfully' });
-            }
-            if (!punjabInstaller) {
-                return res.json({ success: true, role: user.role, message: 'OTP verified successfully' });
-            }
+            // let punjabInstaller = await punjabElection.findOne({ mobile: parseInt(mobile) })
+            // console.log(punjabInstaller, "punjabInstaller")
+            // if (punjabInstaller) { ... }
+            return res.json({ success: true, role: user.role, message: 'OTP verified successfully' });
 
 
         } else {
@@ -414,13 +433,24 @@ exports.getCameraByDid = async (req, res, next) => {
     try {
         const cameras = await Booth.findOne({ deviceId: req.query.deviceId }).sort({ _id: -1 }).limit(1);
 
-        const getFlv = await EleFlv.findOne({ streamname: req.query.deviceId }).sort({ _id: -1 }).limit(1);
+        let streamData = await Stream.findOne({ deviceId: req.query.deviceId }).sort({ _id: -1 }).limit(1);
+        let getFlv = null;
+
+        // Always use Stream collection for streaming URLs
+        if (streamData) {
+            getFlv = {
+                streamname: streamData.deviceId,
+                url2: streamData.mediaUrl, // Mapping mediaUrl to url2 for playback
+                servername: streamData['server name']
+            };
+        }
+        
         console.log("getFlvurl2", getFlv); // For debugging
 
         if (!cameras) {
             return res.status(200).json({
-                success: false,
-                data: 'Device Id not found in election',
+                success: getFlv ? true : false, // Return true if stream exists even without Booth
+                data: getFlv ? { deviceId: req.query.deviceId } : 'Device Id not found in election',
                 flvUrl: getFlv
             });
         }
@@ -481,7 +511,10 @@ exports.getCameraByDidInfo = async (req, res, next) => {
         // }
         // }
 
-        const getFlv = await EleFlv.findOne({ streamname: req.query.deviceId });
+        let getFlv = await Stream.findOne({ deviceId: req.query.deviceId });
+        if (getFlv) {
+            getFlv = { streamname: getFlv.deviceId, url2: getFlv.mediaUrl, servername: getFlv['server name'] };
+        }
         console.log("getFlvurl2", getFlv); // For debugging
 
         if (!cameras) {
@@ -514,50 +547,55 @@ exports.addData = async (req, res, next) => {
         const results = [];
 
         for (const data of deviceIds) {
-            // Check if a camera with the same deviceId already exists in the database
-            const existingCamera = await EleCamera.findOne({ deviceId: data.deviceId });
-
-            const getFlv = await EleFlv.findOne({ streamname: data.deviceId });
+            let getFlv = await Stream.findOne({ deviceId: data.deviceId });
+            if (getFlv) {
+                getFlv = { url2: getFlv.mediaUrl };
+            } else {
+                getFlv = { url2: null };
+            }
             console.log("getFlvurl2", getFlv); // For debugging
 
-            if (existingCamera) {
-                // If the camera already exists, update its details
-                const updatedCamera = await EleCamera.findOneAndUpdate(
-                    { deviceId: data.deviceId },
-                    {
-                        assignedBy: data.assignedBy,
-                        personName: data.personName,
-                        assignedDid: data.assignedDid,
-                        location: data.location,
-                        assemblyName: data.assemblyName,
-                        psNo: data.psNo,
-                        district: data.district,
-                        latitude: data.latitude,
-                        longitude: data.longitude,
-                    },
-                    { new: true }
-                );
+            const assignTo = data.assignedDid;
+            let person = await electionUser.findOne({ mobile: assignTo });
 
-                results.push(updatedCamera);
-            } else {
-                // If the camera does not exist, create a new entry
-                const newCamera = await EleCamera.create({
-                    deviceId: data.deviceId,
-                    assignedBy: data.assignedBy,
-                    personName: data.personName,
-                    assignedDid: data.assignedDid,
-                    personMobile: data.assignedDid,
-                    location: data.location,
-                    assemblyName: data.assemblyName,
-                    psNo: data.psNo,
-                    district: data.district,
-                    latitude: data.latitude,
-                    longitude: data.longitude,
-                    flvUrl: getFlv.url2
+            if (!person) {
+                person = await electionUser.create({
+                    mobile: assignTo,
+                    role: 'installer',
+                    isVerified: 0,
+                    name: data.personName || '',
+                    assignedCameras: []
                 });
-
-                results.push(newCamera);
             }
+
+            if (!person.assignedCameras) person.assignedCameras = [];
+
+            // Remove from previous assignment
+            await electionUser.updateMany(
+                { "assignedCameras.deviceId": data.deviceId },
+                { $pull: { assignedCameras: { deviceId: data.deviceId } } }
+            );
+
+            const camData = {
+                deviceId: data.deviceId,
+                assignedBy: data.assignedBy,
+                personName: data.personName,
+                assignedDid: data.assignedDid,
+                personMobile: data.assignedDid,
+                location: data.location,
+                assemblyName: data.assemblyName,
+                psNo: data.psNo,
+                district: data.district,
+                latitude: data.latitude,
+                longitude: data.longitude,
+                flvUrl: getFlv.url2
+            };
+
+            person.assignedCameras.push(camData);
+            person.markModified('assignedCameras');
+            await person.save();
+
+            results.push(camData);
         }
 
         // Send a response indicating success and the updated/added cameras
@@ -587,7 +625,7 @@ exports.assignCamera = async (req, res, next) => {
         const results = [];
 
         for (const did of didArray) {
-            const camera = await EleFlv.findOne({ streamname: did });
+            const camera = await Stream.findOne({ deviceId: did });
 
             if (!camera) {
                 return res.status(400).json({
@@ -596,44 +634,47 @@ exports.assignCamera = async (req, res, next) => {
                 });
             }
 
-            const person = await electionUser.findOne({ mobile: assignTo });
+            let person = await electionUser.findOne({ mobile: assignTo });
 
             if (!person) {
-                let personCreate = await electionUser.create({
+                person = await electionUser.create({
                     mobile: assignTo,
                     role: 'installer',
-                    isVerified: 0
+                    isVerified: 0,
+                    assignedCameras: []
                 });
             }
 
-            const updateOptions = { upsert: true, new: true, setDefaultsOnInsert: true };
+            if (!person.assignedCameras) person.assignedCameras = [];
 
-            const AssignedDid = await EleCamera.findOneAndUpdate(
-                { deviceId: did },
-                {
-                    $set: {
-                        assignedDid: assignTo,
-                        assignedBy: number,
-                        personName: person ? person.name : '',
-                        personMobile: assignTo,
-                        // location: location,
-                        assemblyName: camera.AssemblyName,
-                        psNo: camera.PSNumber,
-                        district: camera.district,
-                        state: camera.state
-                    }
-                },
-                updateOptions
+            // Remove from any previous assignment
+            await electionUser.updateMany(
+                { "assignedCameras.deviceId": did },
+                { $pull: { assignedCameras: { deviceId: did } } }
             );
 
-            results.push(AssignedDid);
+            const assignedCam = {
+                deviceId: did,
+                assignedDid: assignTo,
+                assignedBy: number,
+                personName: person.name || '',
+                personMobile: assignTo,
+                assemblyName: camera['server name'], // fallback or actual if it was mapped differently
+                district: camera.mediaUrl, // we don't have district in stream, mapping dummy for now
+                state: ''
+            };
 
-            let hist = { ...AssignedDid.toObject() };
-            delete hist._id;
-            hist.actionType = 'assigned camera by district manager to installer';
-            hist.personName = req.body.personName;
-            hist.personMobile = req.body.personMobile;
-            let CreateHistory = await Elehistory.create(hist);
+            person.assignedCameras.push(assignedCam);
+            person.markModified('assignedCameras');
+            await person.save();
+
+            results.push(assignedCam);
+
+            // let hist = { ...assignedCam };
+            // hist.actionType = 'assigned camera by district manager to installer';
+            // hist.personName = req.body.personName;
+            // hist.personMobile = req.body.personMobile;
+            // let CreateHistory = await Elehistory.create(hist);
         }
 
         res.status(200).json({
@@ -653,8 +694,9 @@ exports.assignCamera = async (req, res, next) => {
 // get camera by number 
 exports.getCamerasbyNumber = async (req, res, next) => {
     try {
-        let number = req.query.personMobile
-        const cameras = await EleCamera.find({ assignedDid: number })
+        let number = req.query.personMobile;
+        const user = await electionUser.findOne({ mobile: number });
+        const cameras = user && user.assignedCameras ? user.assignedCameras : [];
 
         res.status(200).json({
             success: true,
@@ -676,12 +718,17 @@ exports.getCamerasbyDid = async (req, res, next) => {
         const regex = new RegExp(req.query.deviceId, 'i');
         console.log("Regex Pattern:", regex); // Check the generated regex pattern
 
-        const cameras = await EleCamera.findOne({ deviceId: { $regex: regex } });
-        console.log("Cameras found:", cameras); // Check the cameras found
+        const user = await electionUser.findOne({ "assignedCameras.deviceId": { $regex: regex } });
+        let camera = null;
+        if (user && user.assignedCameras) {
+            camera = user.assignedCameras.find(c => regex.test(c.deviceId));
+        }
+        
+        console.log("Cameras found:", camera); // Check the cameras found
 
         res.status(200).json({
             success: true,
-            data: cameras,
+            data: camera,
         });
     } catch (error) {
         console.error("Error:", error); // Log any errors
@@ -701,7 +748,7 @@ exports.getCamerasbyAssignedBy = async (req, res, next) => {
         const page = parseInt(req.query.page) || 1; // Current page, default is 1
         const limit = parseInt(req.query.limit) || 15; // Items per page, default is 20
 
-        const totalCameras = await EleCamera.countDocuments();
+        const totalCameras = await countCameras();
         const totalPages = Math.ceil(totalCameras / limit);
 
         const skip = (page - 1) * limit;
@@ -713,7 +760,7 @@ exports.getCamerasbyAssignedBy = async (req, res, next) => {
                 data: 'please enter mobile number',
             });
         }
-        const cameras = await EleCamera.find({ assignedBy: number }).skip(skip).limit(limit);
+        const cameras = await findCameras({ assignedBy: number }).skip(skip).limit(limit);
         // for (let camera of cameras) {
         //     try {
         //         let LastSeenResponse = await axios.get(`https://tn2023demo.vmukti.com/Stream/GetCameraDatatest?cameraId=${camera.deviceId}`);
@@ -917,7 +964,8 @@ exports.convertDistrictToUpperCase = async () => {
 
 exports.updateAssemblyNames = async () => {
     try {
-        await Fsv.updateMany(
+        const Vehicle = require('../models/Vehicle');
+        await Vehicle.updateMany(
             {}, // Empty filter to update all documents
             [
                 {
@@ -926,11 +974,9 @@ exports.updateAssemblyNames = async () => {
                             $concat: [
                                 { $ifNull: ["$location", ""] }, // Existing location value or empty string
                                 { $cond: [{ $eq: ["$location", null] }, "", ", "] }, // Comma separator if location is not null
-                                "$assemblyName", // Append assemblyName
+                                { $ifNull: ["$acName", ""] }, // Append acName
                                 ", ",
-                                "$district", // Append district
-                                ", ",
-                                "$state" // Append state
+                                { $ifNull: ["$districtName", ""] } // Append districtName
                             ]
                         }
                     }
@@ -1417,8 +1463,7 @@ exports.rebootCamera = async (req, res) => {
         console.log("as", req.body)
         const deviceId = req.body.deviceId;
 
-        let prourl = await EleReboot.findOne({ deviceId: deviceId })
-        // const prourl = req.body.prourl
+        let prourl = { prourl: req.body.prourl || "prourl.vmukti.com" }; // Fallback since EleReboot is disabled
         if (!deviceId) {
             return res.status(400).json({ error: 'deviceId is required' });
         }
@@ -1568,10 +1613,10 @@ exports.updateUser = async (req, res, next) => {
 // dashboard details
 exports.getDashboardDetails = async (req, res, next) => {
     try {
-        const totalCameras = await EleCamera.countDocuments()
-        const installedCameras = await EleCamera.countDocuments({ installed_status: 1 });
-        const totalLiveCamera = await EleCamera.countDocuments({ status: 'RUNNING' })
-        const totalOfflineCamera = await EleCamera.countDocuments({ status: 'STOPPED' })
+        const totalCameras = await countCameras()
+        const installedCameras = await countCameras({ installed_status: 1 });
+        const totalLiveCamera = await countCameras({ status: 'RUNNING' })
+        const totalOfflineCamera = await countCameras({ status: 'STOPPED' })
         const totalInstallers = await electionUser.countDocuments({ role: { $ne: 'district' } });
         const totalDistrictManager = await electionUser.countDocuments({ role: 'district' });
         const uniqueState = await Booth.distinct('state');
@@ -1579,10 +1624,10 @@ exports.getDashboardDetails = async (req, res, next) => {
         const dataByState = [];
 
         for (const state of uniqueState) {
-            const totalCameras = await EleCamera.countDocuments({ state });
-            const installedCameras = await EleCamera.countDocuments({ state, installed_status: 1 });
-            const totalLiveCamera = await EleCamera.countDocuments({ state, status: 'RUNNING' });
-            const totalOfflineCamera = await EleCamera.countDocuments({ state, status: 'STOPPED' });
+            const totalCameras = await countCameras({ state });
+            const installedCameras = await countCameras({ state, installed_status: 1 });
+            const totalLiveCamera = await countCameras({ state, status: 'RUNNING' });
+            const totalOfflineCamera = await countCameras({ state, status: 'STOPPED' });
             const totalInstallers = await electionUser.countDocuments({ state, role: { $ne: 'district' } });
             const totalDistrictManager = await electionUser.countDocuments({ state, role: 'district' });
 
@@ -1621,10 +1666,10 @@ exports.getStateData = async (req, res, next) => {
             totalDistrictManager,
             uniqueState
         ] = await Promise.all([
-            EleCamera.countDocuments({ state: state }),
-            EleCamera.countDocuments({ state: state, installed_status: 1 }),
-            EleCamera.countDocuments({ state: state, status: 'RUNNING' }),
-            EleCamera.countDocuments({ state: state, status: 'STOPPED' }),
+            countCameras({ state: state }),
+            countCameras({ state: state, installed_status: 1 }),
+            countCameras({ state: state, status: 'RUNNING' }),
+            countCameras({ state: state, status: 'STOPPED' }),
             electionUser.countDocuments({ state: state, role: { $ne: 'district' } }),
             electionUser.countDocuments({ state: state, role: 'district' }),
             Booth.distinct('district', { state })
@@ -1639,10 +1684,10 @@ exports.getStateData = async (req, res, next) => {
                 totalInstallers,
                 totalDistrictManager
             ] = await Promise.all([
-                EleCamera.countDocuments({ district }),
-                EleCamera.countDocuments({ district, installed_status: 1 }),
-                EleCamera.countDocuments({ district, status: 'RUNNING' }),
-                EleCamera.countDocuments({ district, status: 'STOPPED' }),
+                countCameras({ district }),
+                countCameras({ district, installed_status: 1 }),
+                countCameras({ district, status: 'RUNNING' }),
+                countCameras({ district, status: 'STOPPED' }),
                 electionUser.countDocuments({ district, role: { $ne: 'district' } }),
                 electionUser.countDocuments({ district, role: 'district' })
             ]);
@@ -1687,10 +1732,10 @@ exports.getDistrictData = async (req, res, next) => {
             totalDistrictManager,
             uniqueDistricts
         ] = await Promise.all([
-            EleCamera.countDocuments({ district }),
-            EleCamera.countDocuments({ district, installed_status: 1 }),
-            EleCamera.countDocuments({ district, status: 'RUNNING' }),
-            EleCamera.countDocuments({ district, status: 'STOPPED' }),
+            countCameras({ district }),
+            countCameras({ district, installed_status: 1 }),
+            countCameras({ district, status: 'RUNNING' }),
+            countCameras({ district, status: 'STOPPED' }),
             electionUser.countDocuments({ district, role: { $ne: 'district' } }),
             electionUser.countDocuments({ district, role: 'district' }),
             Booth.distinct('assemblyName', { district }) // Assuming 'assemblyName' is the field for assembly name in Booth collection
@@ -1705,10 +1750,10 @@ exports.getDistrictData = async (req, res, next) => {
                 totalInstallers,
                 totalDistrictManager
             ] = await Promise.all([
-                EleCamera.countDocuments({ district, assemblyName }),
-                EleCamera.countDocuments({ district, assemblyName, installed_status: 1 }),
-                EleCamera.countDocuments({ district, assemblyName, status: 'RUNNING' }),
-                EleCamera.countDocuments({ district, assemblyName, status: 'STOPPED' }),
+                countCameras({ district, assemblyName }),
+                countCameras({ district, assemblyName, installed_status: 1 }),
+                countCameras({ district, assemblyName, status: 'RUNNING' }),
+                countCameras({ district, assemblyName, status: 'STOPPED' }),
                 electionUser.countDocuments({ district, assemblyName, role: { $ne: 'district' } }),
                 electionUser.countDocuments({ district, assemblyName, role: 'district' })
             ]);
@@ -1766,10 +1811,10 @@ exports.getDistrictData = async (req, res, next) => {
 //             totalDistrictManager,
 //             uniqueBooths
 //         ] = await Promise.all([
-//             EleCamera.countDocuments({ assemblyName }),
-//             EleCamera.countDocuments({ assemblyName, installed_status: 1 }),
-//             EleCamera.countDocuments({ assemblyName, status: 'RUNNING' }),
-//             EleCamera.countDocuments({ assemblyName, status: 'STOPPED' }),
+//             countCameras({ assemblyName }),
+//             countCameras({ assemblyName, installed_status: 1 }),
+//             countCameras({ assemblyName, status: 'RUNNING' }),
+//             countCameras({ assemblyName, status: 'STOPPED' }),
 //             electionUser.countDocuments({ assemblyName, role: { $ne: 'district' } }),
 //             electionUser.countDocuments({ assemblyName, role: 'district' }),
 //             Booth.distinct('location', { assemblyName }) // Assuming 'location' is the field for booth name in Booth collection
@@ -1784,10 +1829,10 @@ exports.getDistrictData = async (req, res, next) => {
 //                 totalInstallers,
 //                 totalDistrictManager
 //             ] = await Promise.all([
-//                 EleCamera.countDocuments({ district, assemblyName, location }),
-//                 EleCamera.countDocuments({ district, assemblyName, location, installed_status: 1 }),
-//                 EleCamera.countDocuments({ district, assemblyName, location, status: 'RUNNING' }),
-//                 EleCamera.countDocuments({ district, assemblyName, location, status: 'STOPPED' }),
+//                 countCameras({ district, assemblyName, location }),
+//                 countCameras({ district, assemblyName, location, installed_status: 1 }),
+//                 countCameras({ district, assemblyName, location, status: 'RUNNING' }),
+//                 countCameras({ district, assemblyName, location, status: 'STOPPED' }),
 //                 electionUser.countDocuments({ district, assemblyName, location, role: { $ne: 'district' } }),
 //                 electionUser.countDocuments({ district, assemblyName, location, role: 'district' })
 //             ]);
@@ -1844,10 +1889,10 @@ exports.getAssemblyData = async (req, res, next) => {
             totalDistrictManager,
             uniqueBooths
         ] = await Promise.all([
-            EleCamera.countDocuments({ assemblyName }),
-            EleCamera.countDocuments({ assemblyName, installed_status: 1 }),
-            EleCamera.countDocuments({ assemblyName, status: 'RUNNING' }),
-            EleCamera.countDocuments({ assemblyName, status: 'STOPPED' }),
+            countCameras({ assemblyName }),
+            countCameras({ assemblyName, installed_status: 1 }),
+            countCameras({ assemblyName, status: 'RUNNING' }),
+            countCameras({ assemblyName, status: 'STOPPED' }),
             electionUser.countDocuments({ assemblyName, role: { $ne: 'district' } }),
             electionUser.countDocuments({ assemblyName, role: 'district' }),
             Booth.distinct('location', { assemblyName })
@@ -1862,10 +1907,10 @@ exports.getAssemblyData = async (req, res, next) => {
                 totalInstallers,
                 totalDistrictManager
             ] = await Promise.all([
-                EleCamera.countDocuments({ district, assemblyName, location }),
-                EleCamera.countDocuments({ district, assemblyName, location, installed_status: 1 }),
-                EleCamera.countDocuments({ district, assemblyName, location, status: 'RUNNING' }),
-                EleCamera.countDocuments({ district, assemblyName, location, status: 'STOPPED' }),
+                countCameras({ district, assemblyName, location }),
+                countCameras({ district, assemblyName, location, installed_status: 1 }),
+                countCameras({ district, assemblyName, location, status: 'RUNNING' }),
+                countCameras({ district, assemblyName, location, status: 'STOPPED' }),
                 electionUser.countDocuments({ district, assemblyName, location, role: { $ne: 'district' } }),
                 electionUser.countDocuments({ district, assemblyName, location, role: 'district' })
             ]);
@@ -1915,7 +1960,7 @@ exports.getAssemblyData = async (req, res, next) => {
 
 exports.getCameraByLocation = async (req, res, next) => {
     try {
-        const cameras = await EleCamera.find({ location: req.query.location });
+        const cameras = await findCameras({ location: req.query.location });
 
         // for (let camera of cameras) {
         //     try {
@@ -1972,44 +2017,7 @@ exports.attendance = async (req, res, next) => {
     try {
         console.log(req.body, 'body');
 
-        // Retrieve the last entry from the database
-        const lastEntry = await Attend.findOne({ mobile: req.body.mobile }).sort({ presentDate: -1, presentTime: -1 })
-        console.log(lastEntry, "last")
-        if (lastEntry) {
-            // Parse the presentDate of the last entry using moment
-            const lastEntryDate = moment(lastEntry.presentDate, 'DD/MM/YYYY');
-            const currentDate = moment(req.body.presentDate, 'DD/MM/YYYY');
-
-            console.log(lastEntryDate, currentDate, "gg")
-
-            // Check if the present date has changed
-            if (!currentDate.isSame(lastEntryDate, 'day')) {
-                // If the date has changed, no need to check time difference, proceed with creating attendance
-                const user = await Attend.create(req.body);
-
-                return res.status(200).json({
-                    success: true,
-                    data: 'Attendance done',
-                });
-            }
-
-            // Parse the presentTime of the last entry using moment
-            const lastEntryTime = moment(lastEntry.presentTime, 'HH:mm:ss');
-            const currentTime = moment(req.body.presentTime, 'HH:mm:ss');
-            const timeDifference = moment.duration(currentTime.diff(lastEntryTime));
-
-            // Check if the time difference is more than 3 hours
-            if (timeDifference.asHours() < 0.25) {
-                return res.status(401).json({
-                    success: false,
-                    data: "Cannot create attendance. Present time should be more than 15 min from the last entry.",
-                });
-            }
-        }
-
-        // If no last entry found or time difference is more than 3 hours, create the attendance
-        const user = await Attend.create(req.body);
-
+        // Attendance disabled
         res.status(200).json({
             success: true,
             data: 'Attendance done',
@@ -2026,8 +2034,8 @@ exports.attendance = async (req, res, next) => {
 // get camera by number 
 exports.getLatLongFsv = async (req, res, next) => {
     try {
-        const cameras = await Fsv.find()
-
+        const Vehicle = require('../models/Vehicle');
+        const cameras = await Vehicle.find()
 
         res.status(200).json({
             success: true,
@@ -2045,7 +2053,7 @@ exports.getLatLongFsv = async (req, res, next) => {
 // get camera by number 
 exports.getLatLongPhaseOne = async (req, res, next) => {
     try {
-        const cameras = await elePhaseOneData.find()
+        const cameras = [];
 
 
         res.status(200).json({
@@ -2066,7 +2074,10 @@ exports.getFlvLatDid = async (req, res, next) => {
     try {
         const regex = new RegExp(req.query.deviceId, 'i'); // Case-insensitive regex
 
-        const getFlv = await EleFlv.findOne({ streamname: { $regex: regex } });
+        let getFlv = await Stream.findOne({ deviceId: { $regex: regex } });
+        if (getFlv) {
+            getFlv = { streamname: getFlv.deviceId, url2: getFlv.mediaUrl, servername: getFlv['server name'] };
+        }
         console.log("getFlvurl2", getFlv); // For debugging
 
         if (!getFlv) {
@@ -2093,9 +2104,9 @@ exports.getFullDid = async (req, res, next) => {
     try {
         const regex = new RegExp(req.query.deviceId, 'i'); // Case-insensitive regex
 
-        const getFlv = await EleFlv.aggregate([
-            { $match: { streamname: { $regex: regex } } }, // Match documents based on regex
-            { $project: { streamname: 1, _id: 0 } }, // Project only the streamname field
+        const getFlv = await Stream.aggregate([
+            { $match: { deviceId: { $regex: regex } } }, // Match documents based on regex
+            { $project: { streamname: "$deviceId", _id: 0 } }, // Project deviceId as streamname
             { $sort: { streamname: -1 } } // Sort by streamname field in descending order
         ]);
 
@@ -2136,7 +2147,7 @@ exports.getLatLongPolling = async (req, res, next) => {
             query.date = date;
         }
 
-        const cameras = await EleCamera.find(query);
+        const cameras = await findCameras(query);
 
         res.status(200).json({
             success: true,
@@ -2176,16 +2187,9 @@ exports.trackLiveLatLong = async (req, res, next) => {
         existUser.formatted_address = formatted_address;
         existUser.formatted_address1 = formatted_address1;
         existUser.formatted_address2 = formatted_address2;
-        let hist = { ...existUser.toObject() };
-        delete hist._id;
-        hist.actionType = 'updated user history';
-        hist.personName = personName;
-        hist.personMobile = personMobile;
-        hist.date = date;
-        hist.time = time;
-        let CreateHistory = await EleUserhistory.create(hist);
-
-        existUser.save()
+        // Track history removed as per user request
+        // The latest location is already saved in the election-user collection below
+        await existUser.save();
 
         res.status(200).json({
             success: true,
@@ -2515,19 +2519,19 @@ exports.getElectionCameraChart = async (req, res, next) => {
 
 
         // Count documents within the last hour
-        const currentHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: currentTisplit } });
-        const lastHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: timesplit } });
-        const twoHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time2split } });
-        const threeHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time3split } });
-        const fourHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time4split } });
-        const fiveHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time5split } });
-        const sixHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time6split } });
-        const sevenHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time7split } });
-        const eightHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time8split } });
-        const nineHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time9split } });
-        const tenHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time10split } });
-        const elevenHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time11split } });
-        const twelveHour = await EleCamera.countDocuments({ date: formattedDate, time: { $regex: time12split } });
+        const currentHour = await countCameras({ date: formattedDate, time: { $regex: currentTisplit } });
+        const lastHour = await countCameras({ date: formattedDate, time: { $regex: timesplit } });
+        const twoHour = await countCameras({ date: formattedDate, time: { $regex: time2split } });
+        const threeHour = await countCameras({ date: formattedDate, time: { $regex: time3split } });
+        const fourHour = await countCameras({ date: formattedDate, time: { $regex: time4split } });
+        const fiveHour = await countCameras({ date: formattedDate, time: { $regex: time5split } });
+        const sixHour = await countCameras({ date: formattedDate, time: { $regex: time6split } });
+        const sevenHour = await countCameras({ date: formattedDate, time: { $regex: time7split } });
+        const eightHour = await countCameras({ date: formattedDate, time: { $regex: time8split } });
+        const nineHour = await countCameras({ date: formattedDate, time: { $regex: time9split } });
+        const tenHour = await countCameras({ date: formattedDate, time: { $regex: time10split } });
+        const elevenHour = await countCameras({ date: formattedDate, time: { $regex: time11split } });
+        const twelveHour = await countCameras({ date: formattedDate, time: { $regex: time12split } });
 
         res.status(200).json({
             currentHour,
@@ -2590,9 +2594,8 @@ exports.getRebootCamera = async (req, res, next) => {
         };
 
         // Execute the query
-        const cameras = await EleReboot.find(query, null, options);
-
-        const totalCameras = await EleReboot.countDocuments(query);
+        const cameras = []; // EleReboot is disabled
+        const totalCameras = 0;
 
         const totalPages = Math.ceil(totalCameras / limit);
 
@@ -2622,7 +2625,7 @@ exports.getRebootCamera = async (req, res, next) => {
 exports.getAssemblyByNumber = async (req, res, next) => {
     try {
         let number = req.query.personMobile;
-        const cameras = await electionUserPunjab.findOne({ mobile: number });
+        const cameras = await electionUser.findOne({ mobile: number });
 
         console.log(cameras.state);
 

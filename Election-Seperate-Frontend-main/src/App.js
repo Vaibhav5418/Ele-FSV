@@ -34,6 +34,7 @@ import MyInstallations from './components/MyInstallations';
 import InstallationReport from './components/InstallationReport';
 import UsersInstallationReport from './components/UsersInstallationReport';
 import PwaInstallBanner from './components/PwaInstallBanner';
+import Photo from './components/Photo';
 
 function App() {
   return (
@@ -81,6 +82,7 @@ function AppContent() {
           <Route path="/my-installations" element={<MyInstallations />} />
           <Route path="/installation-report" element={<InstallationReport />} />
           <Route path="/users-installation-report" element={<UsersInstallationReport />} />
+          <Route path="/photo" element={<Photo />} />
         </Routes>
       </Box>
     </Container>
