@@ -598,18 +598,23 @@ const MyInstallations = () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
-      const result = await deleteFsvInstallation(deleteTarget._id);
+      const deletedId = deleteTarget._id;
+      const vehicleNo = deleteTarget.vehicleNo;
+      const result = await deleteFsvInstallation(deletedId);
       if (result.success) {
         toast({
           title: 'Deleted',
-          description: `Installation for ${deleteTarget.vehicleNo} has been deleted.`,
+          description: `Installation for ${vehicleNo} has been deleted.`,
           status: 'success',
           duration: 3000,
           isClosable: true,
         });
         onDeleteClose();
         setDeleteTarget(null);
-        fetchInstallations(false); // refresh list silently
+        // Optimistically remove from state immediately
+        setInstallations(prev => prev.filter(inst => inst._id !== deletedId));
+        setTotalCount(prev => Math.max(0, prev - 1));
+        fetchInstallations(false); // refresh list silently in background
       } else {
         toast({
           title: 'Delete Failed',

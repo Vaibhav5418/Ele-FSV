@@ -97,7 +97,8 @@ const deleteFromThirdPartyAPI = async (ptzCameraSerialNumber, userEmail = "insta
         const response = await axios.delete(apiUrl, {
             headers: {
                 "Content-Type": "application/json"
-            }
+            },
+            timeout: 15000
         });
 
         console.log("3rd Party Delete Success:", response.data);
@@ -941,26 +942,34 @@ exports.deleteFsvReport = async (req, res) => {
             return res.status(404).json({ success: false, message: "Report not found" });
         }
 
+        // Delete from database immediately
         await Vehicle.findByIdAndDelete(id);
 
-        // Look up logged-in user for email
-        let loggedUserEmail = "installer@vmukti.com";
-        if (userMobile && userMobile !== 'Unknown' && !isNaN(parseInt(userMobile))) {
-            const user = await electionUser.findOne({ mobile: parseInt(userMobile) });
-            if (user) {
-                loggedUserEmail = `${user.name.replace(/\s+/g, '.').toLowerCase()}@vmukti.com`;
-                await logAction(user, 'DELETE', 'Vehicle', id, { vehicleNo: vehicle.vehicleNo, districtName: vehicle.districtName }, req.ip);
-            }
-        }
-
-        // Sync delete with 3rd party API
-        await deleteFromThirdPartyAPI(vehicle.ptzCameraSerialNumber, loggedUserEmail);
-
-
+        // Send fast success response to client
         res.status(200).json({
             success: true,
             message: "Installation deleted successfully"
         });
+
+        // Perform audit logging & 3rd party sync asynchronously in background without blocking response
+        (async () => {
+            try {
+                let loggedUserEmail = "installer@vmukti.com";
+                if (userMobile && userMobile !== 'Unknown' && !isNaN(parseInt(userMobile))) {
+                    const user = await electionUser.findOne({ mobile: parseInt(userMobile) });
+                    if (user) {
+                        loggedUserEmail = `${user.name.replace(/\s+/g, '.').toLowerCase()}@vmukti.com`;
+                        await logAction(user, 'DELETE', 'Vehicle', id, { vehicleNo: vehicle.vehicleNo, districtName: vehicle.districtName }, req.ip);
+                    }
+                }
+
+                // Sync delete with 3rd party API (preserves full 3rd party integration)
+                await deleteFromThirdPartyAPI(vehicle.ptzCameraSerialNumber, loggedUserEmail);
+            } catch (bgError) {
+                console.error("Error in background delete sync/logging:", bgError);
+            }
+        })();
+
     } catch (error) {
         console.error("Error deleting FSV report:", error);
         res.status(500).json({ success: false, message: error.message });
