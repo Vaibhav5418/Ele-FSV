@@ -309,11 +309,10 @@ const AutoInstaller = () => {
     clearInterval(toastInterval.current);
 
     setIsFetchingCameraDetails(true);
-    const jessicaDisplayUrl = buildJessicaStreamUrl(deviceId);
-    if (jessicaDisplayUrl) {
-      setFlvUrl(jessicaDisplayUrl);
-      setVideoError(false);
-    }
+    
+    // We will wait for the API to return the correct URL before setting it.
+    setFlvUrl("");
+    setVideoError(false);
 
     try {
       const response = await getCameraByDid(deviceId);
@@ -398,6 +397,7 @@ const AutoInstaller = () => {
 
       const hasPrimaryStream = Boolean(response?.flvUrl?.url2);
       const hasFsvStream = Boolean(fsvStreamUrl);
+      const jessicaDisplayUrl = buildJessicaStreamUrl(deviceId);
       const hasJessicaStream = Boolean(jessicaDisplayUrl);
       const hasAnyStream = hasPrimaryStream || hasFsvStream || hasJessicaStream;
 
@@ -740,7 +740,7 @@ const AutoInstaller = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        timeout: 8000,
+        timeout: 60000, // Increased to 60 seconds for video analysis
       });
 
       console.log("External API Response:", response.data);

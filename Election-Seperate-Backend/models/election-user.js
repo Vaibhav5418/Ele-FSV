@@ -57,10 +57,12 @@ const userSchema = new mongoose.Schema({
     }]
 });
 
-const electionUser = mongoose.model('election-users', userSchema);
-
+// Indexes MUST be defined on the schema BEFORE creating the model
 userSchema.index({ district: 1 });
 userSchema.index({ assemblyName: 1 });
 userSchema.index({ stateAssigned: 1 });
+userSchema.index({ role: 1, mobile: 1 }); // Compound index for installer lookups in reports
+
+const electionUser = mongoose.model('election-users', userSchema);
 
 module.exports = electionUser;

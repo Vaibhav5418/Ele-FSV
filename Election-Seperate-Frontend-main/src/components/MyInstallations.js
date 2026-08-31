@@ -40,6 +40,7 @@ import withAuth from './withAuth';
 import { FaEye, FaDownload, FaEdit, FaTrash } from 'react-icons/fa';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import VideoModal from './modal/VideoModal';
+import { DISTRICT_DATA } from '../utils/districtData';
 
 const MyInstallations = () => {
   const userRole = localStorage.getItem('role');
@@ -100,8 +101,8 @@ const MyInstallations = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   // running union of districts/assemblies seen across pages (for dropdowns)
-  const [allDistricts, setAllDistricts] = useState([]);
-  const [allAssemblies, setAllAssemblies] = useState([]);
+  const allDistricts = Object.keys(DISTRICT_DATA);
+  const allAssemblies = districtFilter ? DISTRICT_DATA[districtFilter] : [];
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const {
@@ -140,25 +141,7 @@ const MyInstallations = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
 
-  // Fetch true filter options from backend
-  useEffect(() => {
-    const fetchFilters = async () => {
-      try {
-        const response = await getUsersInstallationReportFilters(districtFilter);
-        if (response.success) {
-          // If no district is selected, update districts too
-          if (!districtFilter) {
-            setAllDistricts(response.districts || []);
-          }
-          setAllAssemblies(response.assemblies || []);
-        }
-      } catch (error) {
-        console.error("Error fetching filters:", error);
-      }
-    };
-    fetchFilters();
-  }, [districtFilter]);
-
+  // Removed API call for filters, using static DISTRICT_DATA now
   const fetchInstallations = async (showLoading = false) => {
     if (showLoading) setIsLoading(true);
     try {
@@ -706,6 +689,7 @@ const MyInstallations = () => {
                     value={assemblyFilter} 
                     onChange={(e) => setAssemblyFilter(e.target.value)}
                     bg="gray.50"
+                    isDisabled={!districtFilter}
                   >
                     {assemblies.map(a => <option key={a} value={a}>{a}</option>)}
                   </Select>
@@ -803,8 +787,8 @@ const MyInstallations = () => {
 
                   <SimpleGrid columns={2} spacing={2} fontSize="sm">
                     <Box>
-                      <Text color="gray.500">District</Text>
-                      <Text fontWeight="medium">{installation.districtName}</Text>
+                      <Text color="gray.500">District / AC</Text>
+                      <Text fontWeight="medium" isTruncated>{installation.districtName} / {installation.acName}</Text>
                     </Box>
                     <Box>
                       <Text color="gray.500">Driver</Text>
@@ -873,6 +857,7 @@ const MyInstallations = () => {
                 <Tr>
                   <Th>Vehicle No</Th>
                   <Th>District</Th>
+                  <Th>AC Name</Th>
                   <Th>Driver Name</Th>
                   <Th>Camera ID</Th>
                   <Th>Submitted Date & Time</Th>
@@ -885,6 +870,7 @@ const MyInstallations = () => {
                   <Tr key={installation._id} _hover={{ bg: 'gray.50' }}>
                     <Td fontWeight="medium">{installation.vehicleNo}</Td>
                     <Td>{installation.districtName}</Td>
+                    <Td>{installation.acName}</Td>
                     <Td>{installation.driverName}</Td>
                     <Td>
                       <Text fontSize="xs" color="blue.600" fontWeight="medium">

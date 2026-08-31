@@ -36,6 +36,8 @@ router.get('/dashboard/installers', fsvController.getDashboardInstallers);
 router.get('/all/reports', fsvController.getAllFsvReports); // New Route for Dashboard
 router.get('/installations/summary', fsvController.getInstallationSummary);
 router.get('/installations/details', fsvController.getInstallationDetails);
+router.get('/installations/export/excel', fsvController.exportInstallationsExcel); // Streaming Excel export for 300K+
+router.get('/installations/export/pdf', fsvController.exportInstallationsPdf); // Streaming PDF export for 300K+
 router.get('/all/installations', fsvController.getAllInstallationsWithImageUrls); // All installation data with image URLs
 router.get('/my-installations', fsvController.getUserInstallations); // Route for user's installations
 router.get('/audit-logs', fsvController.getAuditLogs); // New Route for Audit Logs (Master only)

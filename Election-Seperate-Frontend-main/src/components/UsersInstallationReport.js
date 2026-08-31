@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useMemo, useDeferredValue } from 'react';
 import { Box, Button, Container, Heading, Table, Thead, Tbody, Tr, Th, Td, Select, HStack, Input, Text, useToast, VStack, Flex, Accordion, AccordionItem, AccordionButton, AccordionPanel, AccordionIcon, TableContainer, Badge, SimpleGrid, Spinner, Center, IconButton } from '@chakra-ui/react';
-import { getFsvInstallationSummary, getFsvInstallationDetails } from '../actions/userActions';
+import { getFsvInstallationSummary, getFsvInstallationDetails, getExportDownloadUrl } from '../actions/userActions';
 import withAuth from './withAuth';
-import * as XLSX from 'xlsx-js-style';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import 'react-datepicker/dist/react-datepicker.css';
+import { DISTRICT_DATA } from '../utils/districtData';
+
 
 const UsersInstallationReport = () => {
     const [reportData, setReportData] = useState([]); // This will hold the summary array + details
@@ -170,25 +169,15 @@ const UsersInstallationReport = () => {
         });
     };
 
-    // Use summary data to populate dropdowns
-    const availableDistricts = useMemo(() => {
-        return Array.from(new Set(reportData.map(d => d.district).filter(Boolean))).sort();
-    }, [reportData]);
+    // Use DISTRICT_DATA to populate dropdowns
+    const availableDistricts = Object.keys(DISTRICT_DATA);
 
     const availableAssemblies = useMemo(() => {
-        let assemblies = [];
-        if (districtSearch) {
-            const group = reportData.find(d => d.district === districtSearch);
-            if (group && group.assemblies) {
-                assemblies = group.assemblies;
-            }
-        } else {
-            reportData.forEach(d => {
-                if (d.assemblies) assemblies.push(...d.assemblies);
-            });
+        if (districtSearch && DISTRICT_DATA[districtSearch]) {
+            return DISTRICT_DATA[districtSearch];
         }
-        return Array.from(new Set(assemblies.filter(Boolean))).sort();
-    }, [reportData, districtSearch]);
+        return [];
+    }, [districtSearch]);
 
     const getFileName = (extension) => {
         const now = new Date();
@@ -209,247 +198,57 @@ const UsersInstallationReport = () => {
         return `${prefix}_Installation_Report_${timestamp}.${extension}`;
     };
 
-    const fetchAllDetailsForExport = async () => {
+    // ─── Server-side streaming export (handles 300K+ records) ──────────
+    // Instead of loading all records as JSON, we open a direct download URL.
+    // The backend streams the file using MongoDB cursors + exceljs/pdfkit.
+
+    const exportToExcel = () => {
+        if (reportData.length === 0) {
+            toast({ title: "No data to export", status: "warning", duration: 3000 });
+            return;
+        }
         setExportLoading(true);
         try {
-            const data = await getFsvInstallationDetails({ ...getActiveFilters(), limit: 999999 });
-            setExportLoading(false);
-            if (data && data.success) {
-                return data.data;
-            } else {
-                toast({ title: 'Error fetching details for export', status: 'error', duration: 3000 });
-                return [];
-            }
-        } catch (error) {
-            console.error(error);
-            setExportLoading(false);
-            return [];
-        }
-    };
-
-    const exportToExcel = async () => {
-        if (reportData.length === 0) {
-            toast({ title: "No data to export", status: "warning", duration: 3000 });
-            return;
-        }
-
-        const allDetails = await fetchAllDetailsForExport();
-        if (allDetails.length === 0) return;
-
-        const aoaData = [];
-        // Add header row once at the top
-        aoaData.push([
-            "Vehicle No", "District", "AC Name", "Installer Name", "Installer Mobile", "Driver Name", "Driver Mobile",
-            "PTZ Camera ID", "GPS No.", "Router No.", "Is QRT vehicle?", "Installation Date",
-            "Submission Time", "Site Address", "Status"
-        ]);
-
-        allDetails.forEach(detail => {
-            aoaData.push([
-                detail.vehicleNo || '',
-                detail.district || '',
-                detail.acName || '',
-                detail.installerName || 'Unknown',
-                detail.installerMobile || 'Unknown',
-                detail.driverName || '',
-                detail.driverMobile || '',
-                detail.ptzCameraId || '',
-                detail.gpsNo || '',
-                detail.routerNo || '',
-                detail.isQrtVehicle || 'No',
-                detail.installationDate || '',
-                detail.submissionTime || '',
-                detail.siteAddress || '',
-                detail.status === 'Completed' ? 'Completed' : 'Pending'
-            ]);
-        });
-
-        aoaData.push([]);
-        const footerString = `This is System Generated Report on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`;
-        const paddedFooter = "                                                                                          " + footerString;
-        aoaData.push([paddedFooter]);
-
-        const worksheet = XLSX.utils.aoa_to_sheet(aoaData);
-        const footerRowIndex = aoaData.length - 1;
-        worksheet["!merges"] = [
-            { s: { r: footerRowIndex, c: 0 }, e: { r: footerRowIndex, c: 13 } }
-        ];
-
-        const colWidths = [
-            { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 15 },
-            { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
-            { wch: 15 }, { wch: 15 }, { wch: 30 }, { wch: 15 }
-        ];
-        worksheet["!cols"] = colWidths;
-
-        for (let R = 0; R < aoaData.length; R++) {
-            if (aoaData[R][0] === "Vehicle No") {
-                for (let C = 0; C < 14; C++) {
-                    const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-                    if (worksheet[cellAddress]) {
-                        worksheet[cellAddress].s = { font: { bold: true } };
-                    }
-                }
-            }
-        }
-
-        const footerCellAddress = XLSX.utils.encode_cell({ r: footerRowIndex, c: 0 });
-        if (worksheet[footerCellAddress]) {
-            worksheet[footerCellAddress].s = { font: { italic: true } };
-        }
-
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Installations");
-        XLSX.writeFile(workbook, getFileName('xlsx'));
-    };
-
-    const getImageData = (url) => {
-        return new Promise((resolve, reject) => {
-            const img = new window.Image();
-            img.crossOrigin = 'Anonymous';
-            img.src = url;
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0);
-                resolve({
-                    dataUrl: canvas.toDataURL('image/png'),
-                    width: img.width,
-                    height: img.height
-                });
-            };
-            img.onerror = (error) => reject(error);
-        });
-    };
-
-    const exportToPDF = async () => {
-        if (reportData.length === 0) {
-            toast({ title: "No data to export", status: "warning", duration: 3000 });
-            return;
-        }
-
-        const allDetails = await fetchAllDetailsForExport();
-        if (allDetails.length === 0) return;
-
-        const doc = new jsPDF('landscape');
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const pageHeight = doc.internal.pageSize.getHeight();
-        let currentY = 15;
-
-        // Add Logo
-        try {
-            const logoUrl = '/screenshot-wide.png';
-            const { dataUrl: logoData, width: naturalWidth, height: naturalHeight } = await getImageData(logoUrl);
-
-            const logoWidth = 40; // wider logo width for the header
-            const ratio = naturalHeight / naturalWidth;
-            const logoHeight = logoWidth * ratio;
-
-            const xPos = (pageWidth - logoWidth) / 2;
-
-            doc.addImage(logoData, 'PNG', xPos, currentY, logoWidth, logoHeight);
-            currentY += logoHeight + 5;
-        } catch (error) {
-            console.error("Error loading logo:", error);
-            currentY += 10;
-        }
-
-        // Add Title
-        doc.setFontSize(14);
-        doc.text("Installation Report - FSV", pageWidth / 2, currentY, { align: 'center' });
-        currentY += 15;
-
-        const tableColumn = [
-            "Vehicle No", "District", "AC Name", "Installer Name", "Installer Mobile", "Driver Name", "Driver Mobile",
-            "PTZ Camera ID", "GPS No.", "Router No.", "Is QRT vehicle?", "Installation Date",
-            "Submission Time", "Site Address", "Status"
-        ];
-
-        const allTableRows = [];
-        
-        allDetails.forEach(detail => {
-            allTableRows.push([
-                detail.vehicleNo || '-',
-                detail.district || '-',
-                detail.acName || '-',
-                detail.installerName || 'Unknown',
-                detail.installerMobile || 'Unknown',
-                detail.driverName || '-',
-                detail.driverMobile || '-',
-                detail.ptzCameraId || '-',
-                detail.gpsNo || '-',
-                detail.routerNo || '-',
-                detail.isQrtVehicle || 'No',
-                detail.installationDate || '-',
-                detail.submissionTime || '-',
-                detail.siteAddress || '-',
-                detail.status === 'Completed' ? 'Complete' : 'Pending'
-            ]);
-        });
-        
-
-        if (allTableRows.length > 0) {
-            autoTable(doc, {
-                head: [tableColumn],
-                body: allTableRows,
-                startY: currentY,
-                theme: 'grid',
-                styles: {
-                    fontSize: 7,
-                    overflow: 'linebreak',
-                    fillColor: [255, 255, 255],
-                    textColor: [0, 0, 0],
-                    lineColor: [0, 0, 0],
-                    lineWidth: 0.1,
-                    cellPadding: 2,
-                    valign: 'middle',
-                    minCellHeight: 10
-                },
-                headStyles: {
-                    fillColor: [240, 240, 240],
-                    textColor: [0, 0, 0],
-                    fontStyle: 'bold',
-                    lineColor: [0, 0, 0],
-                    lineWidth: 0.1,
-                    halign: 'center'
-                },
-                columnStyles: {
-                    0: { cellWidth: 20 }, // Vehicle No
-                    1: { cellWidth: 15, halign: 'center' }, // District
-                    2: { cellWidth: 18, halign: 'center' }, // AC Name
-                    4: { cellWidth: 18, halign: 'center' }, // Installer Mobile
-                    6: { cellWidth: 18, halign: 'center' }, // Driver Mobile
-                    10: { cellWidth: 16, halign: 'center' }, // Date
-                    11: { cellWidth: 16, halign: 'center' }, // Time
-                    12: { cellWidth: 'auto' }, // Site Address
-                    13: { cellWidth: 15, halign: 'center' }  // Status
-                },
-                margin: { left: 10, right: 10 }
+            const url = getExportDownloadUrl('excel', getActiveFilters());
+            window.open(url, '_blank');
+            toast({
+                title: "Export Started",
+                description: "Your Excel file is being generated and will download automatically.",
+                status: "info",
+                duration: 5000,
+                isClosable: true
             });
-            currentY = doc.lastAutoTable.finalY + 15;
-        } else {
-            doc.setFontSize(8);
-            doc.text("No details available", 14, currentY);
-            currentY += 15;
+        } catch (error) {
+            console.error('Excel export error:', error);
+            toast({ title: 'Export Failed', description: error.message, status: 'error', duration: 5000 });
+        } finally {
+            // Small delay so user sees the loading state
+            setTimeout(() => setExportLoading(false), 1500);
         }
+    };
 
-        // Add the system generated footer
-        const dateStr = new Date().toLocaleDateString();
-        const timeStr = new Date().toLocaleTimeString();
-        const footerText = `This is System Generated Report on ${dateStr} at ${timeStr}`;
-
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'italic');
-        if (currentY > pageHeight - 15) {
-            doc.addPage();
-            currentY = 20;
+    const exportToPDF = () => {
+        if (reportData.length === 0) {
+            toast({ title: "No data to export", status: "warning", duration: 3000 });
+            return;
         }
-        doc.text(footerText, pageWidth / 2, currentY, { align: 'center' });
-        doc.setFont('helvetica', 'normal');
-
-        doc.save(getFileName('pdf'));
+        setExportLoading(true);
+        try {
+            const url = getExportDownloadUrl('pdf', getActiveFilters());
+            window.open(url, '_blank');
+            toast({
+                title: "Export Started",
+                description: "Your PDF file is being generated and will download automatically.",
+                status: "info",
+                duration: 5000,
+                isClosable: true
+            });
+        } catch (error) {
+            console.error('PDF export error:', error);
+            toast({ title: 'Export Failed', description: error.message, status: 'error', duration: 5000 });
+        } finally {
+            setTimeout(() => setExportLoading(false), 1500);
+        }
     };
 
     if (!isMaster) {
@@ -544,6 +343,7 @@ const UsersInstallationReport = () => {
                                 bg="white"
                                 width="full"
                                 size={{ base: 'sm', md: 'md' }}
+                                isDisabled={!districtSearch}
                             >
                                 {availableAssemblies.map((a, i) => (
                                     <option key={i} value={a}>{a}</option>

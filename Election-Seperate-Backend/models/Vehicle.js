@@ -49,5 +49,9 @@ vehicleSchema.index({ districtName: 1 });
 vehicleSchema.index({ acName: 1 });
 vehicleSchema.index({ ptzCameraSerialNumber: 1 });
 vehicleSchema.index({ vehicleNo: 1 });
+// Compound indexes for optimized report queries at scale
+vehicleSchema.index({ districtName: 1, createdAt: -1 }); // District accordion + date sort
+vehicleSchema.index({ createdByMobile: 1, createdAt: -1 }); // User's own installations sorted
+vehicleSchema.index({ vehiclePhotoUrl: 1 }); // Status filter (Completed/Pending)
 
 module.exports = mongoose.model('Vehicle', vehicleSchema);

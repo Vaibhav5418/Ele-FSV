@@ -1146,6 +1146,22 @@ export const getUsersInstallationReportFilters = async (district = '') => {
     return { success: false, message: error.message };
   }
 };
+
+/**
+ * Constructs a full download URL for server-side streaming export.
+ * @param {'excel'|'pdf'} format - Export format
+ * @param {Object} filters - Active filter parameters
+ * @returns {string} Full URL with query params for direct download
+ */
+export const getExportDownloadUrl = (format, filters = {}) => {
+  const mobile = localStorage.getItem('mobile');
+  const params = new URLSearchParams({ mobile, ...filters });
+  // Remove empty params
+  for (const [key, value] of [...params.entries()]) {
+    if (!value) params.delete(key);
+  }
+  return `${baseURL}/api/fsv/installations/export/${format}?${params.toString()}`;
+};
 export const checkVehicleExists = async (vehicleNo) => {
   try {
     const response = await instance.get(`/api/fsv/check-vehicle/${vehicleNo}`);

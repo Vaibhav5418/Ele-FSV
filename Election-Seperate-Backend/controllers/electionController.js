@@ -438,9 +438,16 @@ exports.getCameraByDid = async (req, res, next) => {
 
         // Always use Stream collection for streaming URLs
         if (streamData) {
+            let constructedUrl2 = streamData.mediaUrl;
+            if (constructedUrl2 && !constructedUrl2.startsWith('http') && !constructedUrl2.startsWith('ws')) {
+                // Extract domain from mediaUrl (e.g., "mediastream.vmukti.com:443" -> "mediastream.vmukti.com")
+                const domain = streamData.mediaUrl.split(':')[0] || 'mediastream.vmukti.com';
+                constructedUrl2 = `wss://${domain}/jessica/DVR/${streamData.deviceId}.flv`;
+            }
+
             getFlv = {
                 streamname: streamData.deviceId,
-                url2: streamData.mediaUrl, // Mapping mediaUrl to url2 for playback
+                url2: constructedUrl2, // Provide a full playable URL
                 servername: streamData['server name']
             };
         }

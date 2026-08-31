@@ -35,155 +35,7 @@ import QRCodeScanner from './QrCodeScanner';
 // react-autosuggest removed — using custom Chakra dropdown
 import axios from 'axios';
 
-const DISTRICT_DATA = {
-  "BANKURA": [
-    "247-SALTORA",
-    "248-CHHATNA",
-    "249-RANIBANDH",
-    "250-RAIPUR",
-    "251-TALDANGRA",
-    "252-BANKURA",
-    "253-BARJORA",
-    "254-ONDA",
-    "255-BISHNUPUR",
-    "256-KATULPUR",
-    "257-INDUS",
-    "258-SONAMUKH"
-  ],
-  "BIRBHUM": [
-    "284-DUBRAJPUR",
-    "285-SURI",
-    "286-BOLPUR",
-    "287-NANOOR",
-    "288-LABHPUR",
-    "289-SAINTHIA",
-    "290-MAYURESWAR",
-    "291-RAMPURHAT",
-    "292-HANSAN",
-    "293-NALHATI",
-    "294-MURARAI"
-  ],
-  "HOOGHLY": [
-    "185-UTTARPARA",
-    "186-SREERAMPUR",
-    "187-CHAMPDANI",
-    "188-SINGUR",
-    "189-CHANDANNAGAR",
-    "190-CHUNCHURA",
-    "191-BALAGARH",
-    "192-PANDUA",
-    "193-SAPTAGRAM",
-    "194-CHANDITALA",
-    "195-JANGIPARA",
-    "196-HARIPAL",
-    "197-DHANEKHALI",
-    "198-TARAKESWAR",
-    "199-PURSURAH",
-    "200-ARAMBAG",
-    "201-GOGHAT",
-    "202-KHANAKUL"
-  ],
-  "JHARGRAM": [
-    "220-NAYAGRAM",
-    "221-GOPIBALLAVPUR",
-    "222-JHARGRAM",
-    "237-BINPUR"
-  ],
-  "NADIA": [
-    "77-KARIMPUR",
-    "78-TEHATTA",
-    "79-PALASHIPARA",
-    "80-KALIGANJ",
-    "81-NAKASHIPARA",
-    "82-CHAPRA",
-    "83-KRISHNANAGAR UTTAR",
-    "84-NABADWIP",
-    "85-KRISHNANAGAR DAKSHIN",
-    "86-SANTIPUR",
-    "87-RANAGHAT UTTAR PASCHIM",
-    "88-KRISHNAGANJ",
-    "89-RANAGHAT UTTAR PURBA",
-    "90-RANAGHAT DAKSHIN",
-    "91-CHAKDAHA",
-    "92-KALYANI",
-    "93-HARINGHATA"
-  ],
-  "PASCHIM BARDHAMAN": [
-    "275-PANDABESWAR",
-    "276-DURGAPUR PURBA",
-    "277-DURGAPUR PASCHIM",
-    "278-RANIGANJ",
-    "279-JAMURIA",
-    "280-ASANSOL DAKSHIN",
-    "281-ASANSOL UTTAR",
-    "282-KULTALI",
-    "283-BARABANI"
-  ],
-  "PASCHIM MEDINIPUR": [
-    "219-DANTAN",
-    "223-KESHIARY",
-    "224-KHARAGPUR SADAR",
-    "225-NARAYANGARH",
-    "226-SABANG",
-    "227-PINGLA",
-    "228-KHARAGPUR",
-    "229-DEBRA",
-    "230-DASPUR",
-    "231-GHATAL",
-    "232-CHANDRAKONA",
-    "233-GARBETA",
-    "234-SALBONI",
-    "235-KESHPUR",
-    "236-MEDINIPUR"
-  ],
-  "PURBA BARDHAMAN": [
-    "259-KHANDAGHOSH",
-    "260-BARDHAMAN DAKSHIN",
-    "261-RAINA",
-    "262-JAMALPUR",
-    "263-MONTESWAR",
-    "264-KALNA",
-    "265-MEMARI",
-    "266-BURDWAN UTTAR",
-    "267-BHATAR",
-    "268-PURBASTHALI DAKSHIN",
-    "269-PURBASTHALI UTTAR",
-    "270-KATWA",
-    "271-KETUGRAM",
-    "272-MANGALKOT",
-    "273-AUSGRAM",
-    "274-GALSI"
-  ],
-  "PURBA MEDINIPUR": [
-    "203-TAMLUK",
-    "204-PANSKURA PURBA",
-    "205-PANSKURA PASCHIM",
-    "206-MOYNA",
-    "207-NANDAKUMAR",
-    "208-MAHISHADAL",
-    "209-HALDIA",
-    "210-NANDIGRAM",
-    "211-CHANDIPUR",
-    "212-PATASHPUR",
-    "213-KANTHI UTTAR",
-    "214-BHAGABANPUR",
-    "215-KHEJURI",
-    "216-KANTHI DAKSHIN",
-    "217-RAMNAGAR",
-    "218-EGRA"
-  ],
-  "PURULIA": [
-    "238-BANDWAN",
-    "239-BALARAMPUR",
-    "240-BAGHMUNDI",
-    "241-JOYPUR",
-    "242-PURULIA",
-    "243-MANBAZAR",
-    "244-KASHIPUR",
-    "245-PARA",
-    "246-RAGHUNATHPUR"
-  ]
-};
+import { DISTRICT_DATA } from '../utils/districtData';
 
 const findMatchingDistrict = (district) => {
   if (!district) return '';
@@ -402,7 +254,7 @@ const FsvInstallationForm = ({ initialData, onNext, onBack }) => {
     if (scanningField) {
       let formattedText = decodedText;
       if (scanningField === 'vehicleNo') {
-        formattedText = decodedText.toUpperCase().replace(/\s+/g, '');
+        formattedText = decodedText.toUpperCase().replace(/[^A-Z0-9]/g, '');
       } else if (scanningField === 'driverName') {
         formattedText = decodedText.toUpperCase();
       }
@@ -432,7 +284,7 @@ const FsvInstallationForm = ({ initialData, onNext, onBack }) => {
         ...prev,
         districtName: matchedDistrict || prev.districtName,
         acName: matchedAC || prev.acName,
-        vehicleNo: (cleanData.vehicleNo || prev.vehicleNo || '').toUpperCase().replace(/\s+/g, ''),
+        vehicleNo: (cleanData.vehicleNo || prev.vehicleNo || '').toUpperCase().replace(/[^A-Z0-9]/g, ''),
         driverName: (cleanData.driverName || prev.driverName || '').toUpperCase(),
         driverMobileNo: cleanData.driverMobileNo ? String(cleanData.driverMobileNo) : prev.driverMobileNo,
         ptzCameraModelNumber: cleanData.ptzCameraModelNumber || prev.ptzCameraModelNumber,
@@ -457,7 +309,7 @@ const FsvInstallationForm = ({ initialData, onNext, onBack }) => {
       if (!/^[a-zA-Z\s]*$/.test(value)) return;
       updatedValue = value.toUpperCase();
     } else if (name === 'vehicleNo') {
-      updatedValue = value.toUpperCase().replace(/\s+/g, '');
+      updatedValue = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     } else if (name === 'installationSiteAddress' || name === 'typeOfVehicle') {
       updatedValue = value.toUpperCase();
     }

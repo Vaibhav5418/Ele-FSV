@@ -14,6 +14,8 @@ const crypto = require('crypto');
 const axios = require('axios');
 const AiStatus = require('../models/AiStatus');
 const Stream = require('../models/Stream');
+const ExcelJS = require('exceljs');
+const PDFDocument = require('pdfkit');
 
 // Polyfill for global.crypto if not present (needed for some Azure/UUID operations in older Node)
 if (!global.crypto) {
@@ -204,9 +206,16 @@ exports.searchFsvDevice = async (req, res) => {
         const streamData = await Stream.findOne({ deviceId: deviceId }).sort({ _id: -1 });
         
         if (streamData) {
+            let constructedUrl2 = streamData.mediaUrl;
+            if (constructedUrl2 && !constructedUrl2.startsWith('http') && !constructedUrl2.startsWith('ws')) {
+                // Extract domain from mediaUrl (e.g., "mediastream.vmukti.com:443" -> "mediastream.vmukti.com")
+                const domain = streamData.mediaUrl.split(':')[0] || 'mediastream.vmukti.com';
+                constructedUrl2 = `wss://${domain}/jessica/DVR/${streamData.deviceId}.flv`;
+            }
+
             flvData = {
                 streamname: streamData.deviceId,
-                url2: streamData.mediaUrl,
+                url2: constructedUrl2,
                 servername: streamData['server name']
             };
         }
@@ -1104,136 +1113,118 @@ exports.getFsvFilters = async (req, res) => {
     }
 };
 
-// Users Installation Report specific to FSV data
+// Users Installation Report — optimized with aggregation pipeline
+// Replaces the old O(N×M) in-memory loop that loaded all vehicles + all cameras + all installers.
 exports.getUsersInstallationReport = async (req, res, next) => {
     try {
         const { startDate, endDate, district, assemblyName } = req.query;
-        let query = {};
-        let cameraQuery = {};
 
-        // Date filtering
+        // Build a $match stage for vehicles
+        const vehicleMatch = {};
         if (startDate || endDate) {
-            query.createdAt = {};
-            if (startDate) {
-                query.createdAt.$gte = new Date(startDate);
-            }
+            vehicleMatch.createdAt = {};
+            if (startDate) vehicleMatch.createdAt.$gte = new Date(startDate);
             if (endDate) {
                 const end = new Date(endDate);
                 end.setHours(23, 59, 59, 999);
-                query.createdAt.$lte = end;
+                vehicleMatch.createdAt.$lte = end;
             }
         }
+        if (district) vehicleMatch.districtName = new RegExp(`^${district.trim()}$`, 'i');
+        if (assemblyName) vehicleMatch.acName = new RegExp(`^${assemblyName.trim()}$`, 'i');
 
-        // District & Assembly filtering
-        if (district) {
-            const dRegex = new RegExp(`^${district.trim()}$`, 'i');
-            query.districtName = dRegex;
-            cameraQuery.districtName = dRegex; // Fixed for Vehicle model
-        }
-        if (assemblyName) {
-            const aRegex = new RegExp(`^${assemblyName.trim()}$`, 'i');
-            query.acName = aRegex;
-            cameraQuery.acName = aRegex; // Fixed for Vehicle model
-        }
+        // Single aggregation: group vehicles by installer mobile, compute counts
+        const pipeline = [
+            { $match: vehicleMatch },
+            {
+                $group: {
+                    _id: '$createdByMobile',
+                    installationsCompleted: {
+                        $sum: { $cond: [{ $gt: [{ $ifNull: ['$vehiclePhotoUrl', ''] }, ''] }, 1, 0] }
+                    },
+                    installationsPending: {
+                        $sum: { $cond: [{ $gt: [{ $ifNull: ['$vehiclePhotoUrl', ''] }, ''] }, 0, 1] }
+                    },
+                    completedDetails: {
+                        $push: {
+                            $cond: [
+                                { $gt: [{ $ifNull: ['$vehiclePhotoUrl', ''] }, ''] },
+                                {
+                                    vehicleNo: { $ifNull: ['$vehicleNo', 'N/A'] },
+                                    district: { $ifNull: ['$districtName', 'N/A'] },
+                                    acName: { $ifNull: ['$acName', 'N/A'] },
+                                    driverName: { $ifNull: ['$driverName', 'N/A'] },
+                                    driverMobile: { $ifNull: ['$driverMobileNo', 'N/A'] },
+                                    ptzCameraId: { $ifNull: ['$ptzCameraSerialNumber', 'N/A'] },
+                                    gpsNo: { $ifNull: ['$gpsDeviceSerialNo', 'N/A'] },
+                                    routerNo: { $ifNull: ['$internet4GRouterSimNo', 'N/A'] },
+                                    installationDate: '$installationDate',
+                                    submissionTime: '$createdAt',
+                                    siteAddress: { $ifNull: ['$installationSiteAddress', 'N/A'] },
+                                    status: 'Completed'
+                                },
+                                '$$REMOVE'
+                            ]
+                        }
+                    },
+                    pendingDetails: {
+                        $push: {
+                            $cond: [
+                                { $gt: [{ $ifNull: ['$vehiclePhotoUrl', ''] }, ''] },
+                                '$$REMOVE',
+                                {
+                                    ptzCameraId: { $ifNull: ['$ptzCameraSerialNumber', 'N/A'] },
+                                    district: { $ifNull: ['$districtName', 'N/A'] },
+                                    acName: { $ifNull: ['$acName', 'N/A'] },
+                                    status: 'Pending'
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            // Filter out records with no valid installer mobile
+            { $match: { _id: { $ne: null, $nin: ['', 'Unknown'] } } }
+        ];
 
-        const allVehicles = await Vehicle.find(query)
-            .select('createdByMobile vehiclePhotoUrl ptzCameraSerialNumber vehicleNo districtName acName driverName driverMobileNo gpsDeviceSerialNo internet4GRouterSimNo installationDate createdAt installationSiteAddress')
-            .lean();
+        const grouped = await Vehicle.aggregate(pipeline).allowDiskUse(true);
 
-        // Fetch all assigned cameras (respecting filters if provided)
-        // Replaced EleCamera with Vehicle
-        const rawCameras = await Vehicle.find(cameraQuery).lean();
-        const allCameras = rawCameras.map(v => ({
-            assignedDid: v.createdByMobile,
-            personMobile: v.driverMobileNo,
-            deviceId: v.ptzCameraSerialNumber,
-            district: v.districtName,
-            assemblyName: v.acName
-        }));
+        // Batch-lookup installer names
+        const mobiles = grouped.map(g => parseInt(g._id, 10)).filter(m => !isNaN(m));
+        const users = await electionUser.find(
+            { mobile: { $in: mobiles }, role: { $nin: ['master', 'admin'] } }
+        ).select('mobile name district stateAssigned state').lean();
 
-        // Fetch installers (respecting filters)
-        let installerQuery = { role: { $nin: ['master', 'admin'] } };
-        if (district) installerQuery.district = district;
-        if (assemblyName) installerQuery.assemblyName = assemblyName;
+        const userMap = {};
+        users.forEach(u => { userMap[u.mobile] = u; });
 
-        const installers = await electionUser.find(installerQuery)
-            .select('mobile name district stateAssigned state role')
-            .lean();
-
-        const reportData = [];
-
-        for (const user of installers) {
-            // fsV correlations use createdByMobile to attach vehicles securely
-            const userVehicles = allVehicles.filter(v => v.createdByMobile == user.mobile);
-
-            // Vehicles with a main photo are interpreted as technically installed
-            const completedVehicles = userVehicles.filter(v => !!v.vehiclePhotoUrl);
-
-            // Vehicles created but missing photos
-            const incompleteVehicles = userVehicles.filter(v => !v.vehiclePhotoUrl);
-
-            // Fetch ALL cameras assigned to this user from the EleCamera database to get REAL pending cameras 
-            // that haven't even been started (no Vehicle record created yet).
-            const assignedCameras = allCameras.filter(c => c.assignedDid == user.mobile || c.personMobile == user.mobile);
-
-            // Filter out cameras that are already in the "Completed" list
-            // Assuming ptzCameraSerialNumber or gpsDeviceSerialNo matches deviceId
-            const completedCameraIds = completedVehicles.map(v => v.ptzCameraSerialNumber);
-            const untouchedCameras = assignedCameras.filter(c => !completedCameraIds.includes(c.deviceId));
-
-            const pendingTotal = incompleteVehicles.length + untouchedCameras.length;
-
-            reportData.push({
-                user: {
-                    name: user.name,
-                    mobile: user.mobile,
-                    district: user.district || user.stateAssigned || 'N/A',
-                    state: user.state || 'N/A'
-                },
-                installationsCompleted: completedVehicles.length,
-                installationsPending: pendingTotal,
-                completedDetails: completedVehicles.map(v => ({
-                    vehicleNo: v.vehicleNo || 'N/A',
-                    district: v.districtName || 'N/A',
-                    acName: v.acName || 'N/A',
-                    driverName: v.driverName || 'N/A',
-                    driverMobile: v.driverMobileNo || 'N/A',
-                    ptzCameraId: v.ptzCameraSerialNumber || 'N/A',
-                    gpsNo: v.gpsDeviceSerialNo || 'N/A',
-                    routerNo: v.internet4GRouterSimNo || 'N/A',
-                    installationDate: v.installationDate ? new Date(v.installationDate).toLocaleDateString() : 'N/A',
-                    submissionTime: v.createdAt ? new Date(v.createdAt).toLocaleTimeString() : 'N/A',
-                    siteAddress: v.installationSiteAddress || 'N/A',
-                    status: 'Completed'
-                })),
-                pendingDetails: [
-                    ...incompleteVehicles.map(v => ({
-                        ptzCameraId: v.ptzCameraSerialNumber || 'N/A',
-                        district: v.districtName || 'N/A',
-                        acName: v.acName || 'N/A',
-                        status: 'Pending'
-                    })),
-                    ...untouchedCameras.map(c => ({
-                        ptzCameraId: c.deviceId || 'N/A',
-                        district: c.district || 'N/A',
-                        acName: c.assemblyName || 'N/A',
-                        status: 'Pending'
-                    }))
-                ]
+        const reportData = grouped
+            .filter(g => {
+                const m = parseInt(g._id, 10);
+                return !isNaN(m) && userMap[m]; // Only include known installers
+            })
+            .map(g => {
+                const m = parseInt(g._id, 10);
+                const u = userMap[m];
+                return {
+                    user: {
+                        name: u.name,
+                        mobile: u.mobile,
+                        district: u.district || u.stateAssigned || 'N/A',
+                        state: u.state || 'N/A'
+                    },
+                    installationsCompleted: g.installationsCompleted,
+                    installationsPending: g.installationsPending,
+                    completedDetails: g.completedDetails,
+                    pendingDetails: g.pendingDetails
+                };
             });
-        }
 
-        res.status(200).json({
-            success: true,
-            data: reportData
-        });
+        res.status(200).json({ success: true, data: reportData });
 
     } catch (error) {
         console.error("Error generating user installation report:", error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        res.status(500).json({ success: false, error: error.message });
     }
 };
 
@@ -1277,10 +1268,17 @@ exports.checkCameraExists = async (req, res) => {
 // overwrite each other when multiple filters are active simultaneously.
 const buildMatchQuery = async (params) => {
     const {
-        mobile, startDate, endDate, statusSearch,
-        districtSearch, assemblySearch, qrtSearch, gpsSearch,
+        mobile, startDate, endDate, 
+        districtSearch, assemblySearch, qrtSearch, gpsSearch, statusSearch,
+        districtFilter, assemblyFilter, qrtFilter, statusFilter,
         searchQuery, searchType, installerSearch, district
     } = params;
+
+    // Normalize filter keys between different front-end views
+    const finalDistrictSearch = districtSearch || districtFilter;
+    const finalAssemblySearch = assemblySearch || assemblyFilter;
+    const finalQrtSearch = qrtSearch || qrtFilter;
+    const finalStatusSearch = statusSearch || statusFilter;
 
     const user = await electionUser.findOne({ mobile: parseInt(mobile) });
     const and = [];   // collects $or / complex conditions
@@ -1305,13 +1303,20 @@ const buildMatchQuery = async (params) => {
     // District – prefer the explicit district param (accordion expand), then the search filter
     if (district) {
         q.districtName = new RegExp(`^\\s*${district.trim()}\\s*$`, 'i');
-    } else if (districtSearch && districtSearch.trim()) {
-        q.districtName = new RegExp(`^\\s*${districtSearch.trim()}\\s*$`, 'i');
+    } else if (finalDistrictSearch && finalDistrictSearch.trim()) {
+        q.districtName = new RegExp(`^\\s*${finalDistrictSearch.trim()}\\s*$`, 'i');
     }
 
     // Assembly
-    if (assemblySearch && assemblySearch.trim()) {
-        q.acName = new RegExp(`^\\s*${assemblySearch.trim()}\\s*$`, 'i');
+    if (finalAssemblySearch && finalAssemblySearch.trim()) {
+        const assemblyStr = finalAssemblySearch.trim();
+        const cleanAssembly = assemblyStr.replace(/^\\d+-/, '').trim();
+        and.push({
+            $or: [
+                { acName: new RegExp(`^\\s*${assemblyStr}\\s*$`, 'i') },
+                { acName: new RegExp(`^\\s*(?:\\d+-)?${cleanAssembly}\\s*$`, 'i') }
+            ]
+        });
     }
 
     // Vehicle / Camera text search
@@ -1325,10 +1330,10 @@ const buildMatchQuery = async (params) => {
     }
 
     // Status (Completed = has vehiclePhotoUrl, Pending = missing/empty)
-    if (statusSearch) {
-        if (statusSearch === 'Completed') {
+    if (finalStatusSearch) {
+        if (finalStatusSearch === 'Completed') {
             q.vehiclePhotoUrl = { $exists: true, $nin: [null, ''] };
-        } else if (statusSearch === 'Pending') {
+        } else if (finalStatusSearch === 'Pending') {
             and.push({ $or: [
                 { vehiclePhotoUrl: { $exists: false } },
                 { vehiclePhotoUrl: null },
@@ -1337,16 +1342,26 @@ const buildMatchQuery = async (params) => {
         }
     }
 
-    // QRT filter
-    if (qrtSearch) {
-        if (qrtSearch.toLowerCase() === 'yes') {
-            q.isQrtVehicle = 'Yes';
-        } else if (qrtSearch.toLowerCase() === 'no') {
-            and.push({ $or: [
-                { isQrtVehicle: { $in: ['No', 'no', 'NO', ''] } },
-                { isQrtVehicle: { $exists: false } },
-                { isQrtVehicle: null }
-            ]});
+    // Is QRT vehicle?
+    if (finalQrtSearch) {
+        if (finalQrtSearch.toLowerCase() === 'yes') {
+            and.push({
+                $or: [
+                    { isQrtVehicle: new RegExp('^\\s*yes\\s*$', 'i') },
+                    { isQRTVehicle: new RegExp('^\\s*yes\\s*$', 'i') }
+                ]
+            });
+        } else if (finalQrtSearch.toLowerCase() === 'no') {
+            and.push({
+                $or: [
+                    { isQrtVehicle: { $in: ['No', 'no', 'NO', ''] } },
+                    { isQRTVehicle: { $in: ['No', 'no', 'NO', ''] } },
+                    { isQrtVehicle: { $exists: false } },
+                    { isQRTVehicle: { $exists: false } },
+                    { isQrtVehicle: null },
+                    { isQRTVehicle: null }
+                ]
+            });
         }
     }
 
@@ -1509,5 +1524,277 @@ exports.getInstallationDetails = async (req, res) => {
     } catch (error) {
         console.error("Error fetching details:", error);
         res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// ─── Streaming Export Endpoints (for 300K+ records) ──────────────────────────
+
+/**
+ * GET /api/fsv/installations/export/excel
+ * Streams an .xlsx file directly to the client using exceljs streaming workbook
+ * and a MongoDB cursor. Never holds all records in memory.
+ */
+exports.exportInstallationsExcel = async (req, res) => {
+    try {
+        const matchQuery = await buildMatchQuery(req.query);
+
+        // Set response headers for file download
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filename = `Installation_Report_${timestamp}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+        // Create streaming workbook that writes directly to the response
+        const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true });
+        const worksheet = workbook.addWorksheet('Installations');
+
+        // Define columns with widths
+        worksheet.columns = [
+            { header: 'Vehicle No', key: 'vehicleNo', width: 20 },
+            { header: 'District', key: 'district', width: 18 },
+            { header: 'AC Name', key: 'acName', width: 18 },
+            { header: 'Installer Name', key: 'installerName', width: 22 },
+            { header: 'Installer Mobile', key: 'installerMobile', width: 16 },
+            { header: 'Driver Name', key: 'driverName', width: 22 },
+            { header: 'Driver Mobile', key: 'driverMobile', width: 16 },
+            { header: 'PTZ Camera ID', key: 'ptzCameraId', width: 18 },
+            { header: 'GPS No.', key: 'gpsNo', width: 16 },
+            { header: 'Router No.', key: 'routerNo', width: 16 },
+            { header: 'Is QRT Vehicle?', key: 'isQrtVehicle', width: 14 },
+            { header: 'Installation Date', key: 'installationDate', width: 18 },
+            { header: 'Submission Time', key: 'submissionTime', width: 18 },
+            { header: 'Site Address', key: 'siteAddress', width: 35 },
+            { header: 'Status', key: 'status', width: 12 }
+        ];
+
+        // Style header row
+        const headerRow = worksheet.getRow(1);
+        headerRow.font = { bold: true, size: 11 };
+        headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+        headerRow.commit();
+
+        // Pre-fetch installer names in batches using a cursor approach:
+        // First pass - collect unique mobiles via aggregation
+        const mobileAgg = await Vehicle.aggregate([
+            { $match: matchQuery },
+            { $group: { _id: '$createdByMobile' } }
+        ]).allowDiskUse(true);
+
+        const allMobiles = mobileAgg
+            .map(m => parseInt(m._id, 10))
+            .filter(m => !isNaN(m));
+
+        // Batch fetch all installer names
+        const installerMap = {};
+        const BATCH_SIZE = 1000;
+        for (let i = 0; i < allMobiles.length; i += BATCH_SIZE) {
+            const batch = allMobiles.slice(i, i + BATCH_SIZE);
+            const users = await electionUser.find({ mobile: { $in: batch } }).select('mobile name').lean();
+            users.forEach(u => { installerMap[u.mobile] = u.name; });
+        }
+
+        // Stream records using MongoDB cursor
+        const cursor = Vehicle.find(matchQuery)
+            .select('-driverPhotoUrl -fstMemberPhotoUrl -serviceProviderPhotoUrl -pilPhotoUrl -localScreenPhotoUrl -streamScreenshotUrl')
+            .sort({ createdAt: -1 })
+            .lean()
+            .cursor({ batchSize: 500 });
+
+        let rowCount = 0;
+        for await (const r of cursor) {
+            const mobileNum = parseInt(r.createdByMobile, 10);
+            const installerName = (!isNaN(mobileNum) && installerMap[mobileNum]) ? installerMap[mobileNum] : 'Unknown';
+            const isCompleted = !!r.vehiclePhotoUrl;
+
+            worksheet.addRow({
+                vehicleNo: r.vehicleNo || 'N/A',
+                district: r.districtName ? r.districtName.trim().toUpperCase() : 'UNKNOWN',
+                acName: r.acName || 'N/A',
+                installerName,
+                installerMobile: r.createdByMobile || 'Unknown',
+                driverName: r.driverName || 'N/A',
+                driverMobile: r.driverMobileNo || 'N/A',
+                ptzCameraId: r.ptzCameraSerialNumber || 'N/A',
+                gpsNo: r.gpsDeviceSerialNo || 'N/A',
+                routerNo: r.internet4GRouterSimNo || 'N/A',
+                isQrtVehicle: r.isQrtVehicle || r.isQRTVehicle || 'No',
+                installationDate: r.installationDate ? new Date(r.installationDate).toLocaleDateString() : 'N/A',
+                submissionTime: r.createdAt ? new Date(r.createdAt).toLocaleString() : 'N/A',
+                siteAddress: r.installationSiteAddress || 'N/A',
+                status: isCompleted ? 'Completed' : 'Pending'
+            }).commit();
+
+            rowCount++;
+        }
+
+        // Add footer row
+        const footerRow = worksheet.addRow([
+            `System Generated Report — ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()} — ${rowCount} records exported`
+        ]);
+        footerRow.font = { italic: true, size: 9 };
+        footerRow.commit();
+
+        await workbook.commit();
+        // Response stream is ended by workbook.commit()
+
+    } catch (error) {
+        console.error('Error exporting Excel:', error);
+        // If headers haven't been sent yet, send error JSON
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: error.message });
+        } else {
+            res.end();
+        }
+    }
+};
+
+/**
+ * GET /api/fsv/installations/export/pdf
+ * Streams a PDF file directly to the client using pdfkit + MongoDB cursor.
+ * Renders a table with all matching installations.
+ */
+exports.exportInstallationsPdf = async (req, res) => {
+    try {
+        const matchQuery = await buildMatchQuery(req.query);
+
+        // Set response headers for file download
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filename = `Installation_Report_${timestamp}.pdf`;
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+        // Pre-fetch installer names (same batch approach as Excel)
+        const mobileAgg = await Vehicle.aggregate([
+            { $match: matchQuery },
+            { $group: { _id: '$createdByMobile' } }
+        ]).allowDiskUse(true);
+
+        const allMobiles = mobileAgg.map(m => parseInt(m._id, 10)).filter(m => !isNaN(m));
+        const installerMap = {};
+        const BATCH_SIZE = 1000;
+        for (let i = 0; i < allMobiles.length; i += BATCH_SIZE) {
+            const batch = allMobiles.slice(i, i + BATCH_SIZE);
+            const users = await electionUser.find({ mobile: { $in: batch } }).select('mobile name').lean();
+            users.forEach(u => { installerMap[u.mobile] = u.name; });
+        }
+
+        // Create PDF document in landscape, pipe to response
+        const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 20, bufferPages: false });
+        doc.pipe(res);
+
+        // Column definitions for the table
+        const columns = [
+            { header: 'Vehicle No', width: 62 },
+            { header: 'District', width: 55 },
+            { header: 'AC Name', width: 55 },
+            { header: 'Installer', width: 60 },
+            { header: 'Driver', width: 55 },
+            { header: 'Camera ID', width: 60 },
+            { header: 'GPS No', width: 50 },
+            { header: 'QRT?', width: 28 },
+            { header: 'Date', width: 55 },
+            { header: 'Address', width: 100 },
+            { header: 'Status', width: 45 }
+        ];
+
+        const pageWidth = doc.page.width - 40; // 20 margin each side
+        const startX = 20;
+        const rowHeight = 14;
+        const headerHeight = 16;
+        let currentY = 20;
+
+        // Title
+        doc.fontSize(14).font('Helvetica-Bold').text('Installation Report - FSV', { align: 'center' });
+        currentY = doc.y + 10;
+
+        // Function to draw table header
+        const drawTableHeader = () => {
+            let x = startX;
+            doc.fontSize(6).font('Helvetica-Bold');
+            doc.rect(startX, currentY, pageWidth, headerHeight).fill('#e0e0e0').stroke('#000');
+            doc.fillColor('#000');
+            columns.forEach(col => {
+                doc.text(col.header, x + 2, currentY + 4, { width: col.width - 4, height: headerHeight });
+                x += col.width;
+            });
+            currentY += headerHeight;
+        };
+
+        drawTableHeader();
+
+        // Stream records
+        const cursor = Vehicle.find(matchQuery)
+            .select('-driverPhotoUrl -fstMemberPhotoUrl -serviceProviderPhotoUrl -pilPhotoUrl -localScreenPhotoUrl -streamScreenshotUrl')
+            .sort({ createdAt: -1 })
+            .lean()
+            .cursor({ batchSize: 500 });
+
+        let rowCount = 0;
+        const maxY = doc.page.height - 40;
+
+        for await (const r of cursor) {
+            // Check if we need a new page
+            if (currentY + rowHeight > maxY) {
+                doc.addPage();
+                currentY = 20;
+                drawTableHeader();
+            }
+
+            const mobileNum = parseInt(r.createdByMobile, 10);
+            const installerName = (!isNaN(mobileNum) && installerMap[mobileNum]) ? installerMap[mobileNum] : 'Unknown';
+            const isCompleted = !!r.vehiclePhotoUrl;
+
+            const rowData = [
+                r.vehicleNo || 'N/A',
+                r.districtName ? r.districtName.trim() : 'Unknown',
+                r.acName || 'N/A',
+                installerName,
+                r.driverName || 'N/A',
+                r.ptzCameraSerialNumber || 'N/A',
+                r.gpsDeviceSerialNo || 'N/A',
+                r.isQrtVehicle || 'No',
+                r.installationDate ? new Date(r.installationDate).toLocaleDateString() : 'N/A',
+                r.installationSiteAddress || 'N/A',
+                isCompleted ? 'Completed' : 'Pending'
+            ];
+
+            // Alternate row shading
+            if (rowCount % 2 === 0) {
+                doc.rect(startX, currentY, pageWidth, rowHeight).fill('#f9f9f9').stroke();
+            } else {
+                doc.rect(startX, currentY, pageWidth, rowHeight).fill('#fff').stroke();
+            }
+            doc.fillColor('#000');
+
+            let x = startX;
+            doc.fontSize(5.5).font('Helvetica');
+            rowData.forEach((text, i) => {
+                const truncated = String(text).substring(0, 40);
+                doc.text(truncated, x + 2, currentY + 3, { width: columns[i].width - 4, height: rowHeight, lineBreak: false });
+                x += columns[i].width;
+            });
+
+            currentY += rowHeight;
+            rowCount++;
+        }
+
+        // Footer
+        if (currentY + 25 > maxY) {
+            doc.addPage();
+            currentY = 20;
+        }
+        currentY += 10;
+        doc.fontSize(8).font('Helvetica-Oblique')
+            .text(`System Generated Report — ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()} — ${rowCount} records`, startX, currentY, { align: 'center' });
+
+        doc.end();
+
+    } catch (error) {
+        console.error('Error exporting PDF:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: error.message });
+        } else {
+            res.end();
+        }
     }
 };
