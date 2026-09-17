@@ -469,15 +469,36 @@ const FsvInstallationForm = ({ initialData, onNext, onBack }) => {
         }
       } catch (validationError) {
         console.error('Camera ID validation error:', validationError);
-        toast({
-          title: "Validation Error",
-          description: "Unable to validate Camera ID. Please try again.",
-          status: "error",
-          duration: 5000,
-          isClosable: true
-        });
-        setIsValidatingCamera(false);
-        return;
+        
+        try {
+          console.log('Checking local backend Stream collection as fallback due to external API error...');
+          const fallbackCheck = await searchFsvDevice(formData.ptzCameraSerialNumber.trim());
+          if (fallbackCheck && fallbackCheck.success) {
+            console.log('Found in local backend Stream collection despite external error.');
+            // Proceed without returning, allowing the form submission to continue
+          } else {
+            toast({
+              title: "Validation Error",
+              description: "Unable to validate Camera ID. Please try again.",
+              status: "error",
+              duration: 5000,
+              isClosable: true
+            });
+            setIsValidatingCamera(false);
+            return;
+          }
+        } catch (fallbackError) {
+          console.error('Fallback check also failed:', fallbackError);
+          toast({
+            title: "Validation Error",
+            description: "Unable to validate Camera ID. Please try again.",
+            status: "error",
+            duration: 5000,
+            isClosable: true
+          });
+          setIsValidatingCamera(false);
+          return;
+        }
       }
       setIsValidatingCamera(false);
     }
