@@ -28,7 +28,7 @@ import {
   Flex,
   Image
 } from '@chakra-ui/react';
-import { createFsvReport, checkVehicleExists, checkCameraExists, getFsvSuggestions } from '../actions/userActions';
+import { createFsvReport, checkVehicleExists, checkCameraExists, getFsvSuggestions, searchFsvDevice } from '../actions/userActions';
 import { useNavigate } from 'react-router-dom';
 import { MdQrCodeScanner, MdArrowBack, MdLocationOn, MdDirectionsCar, MdVideocam, MdSettingsInputComponent, MdPhoto } from 'react-icons/md';
 import QRCodeScanner from './QrCodeScanner';
@@ -438,9 +438,25 @@ const FsvInstallationForm = ({ initialData, onNext, onBack }) => {
           return String(val).trim() === cameraId;
         });
 
-        console.log('isAllowed:', isAllowed);
+        console.log('isAllowed from external API:', isAllowed);
 
-        if (!isAllowed) {
+        let finalAllowed = isAllowed;
+
+        // Fallback: check our own backend (Stream collection) if not found in external portal
+        if (!finalAllowed) {
+          try {
+            console.log('Checking local backend Stream collection as fallback...');
+            const fallbackCheck = await searchFsvDevice(cameraId);
+            if (fallbackCheck && fallbackCheck.success) {
+              finalAllowed = true;
+              console.log('Found in local backend Stream collection.');
+            }
+          } catch (fallbackError) {
+             console.error('Fallback check failed:', fallbackError);
+          }
+        }
+
+        if (!finalAllowed) {
           toast({
             title: "Camera ID Not Found",
             description: "Camera ID does not exist. Please contact the Backend Team.",
