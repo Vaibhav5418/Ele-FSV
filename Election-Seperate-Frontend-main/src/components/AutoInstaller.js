@@ -108,7 +108,7 @@ const AutoInstaller = () => {
   const handleToggleExpand = (id) => {
     setExpandedCameraId((prevId) => (prevId === id ? null : id));
   };
-  const [location, setLocation] = useState(null);
+  const [location, setLocation] = useState({ latitude: null, longitude: null });
   const [address, setAddress] = useState("");
   const [deviceId, setDeviceId] = useState("");
   const [boothNo, setBoothNo] = useState("");
@@ -217,7 +217,7 @@ const AutoInstaller = () => {
     camera();
     did();
 
-    if ("geolocation" in navigator) {
+    /*if ("geolocation" in navigator) {
       geolocationWatchId.current = navigator.geolocation.watchPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
@@ -246,7 +246,7 @@ const AutoInstaller = () => {
       );
     } else {
       console.error("Geolocation is not supported by your browser.");
-    }
+    }*/
 
     return () => {
       if (geolocationWatchId.current !== null) {

@@ -41,7 +41,7 @@ import Autosuggest from 'react-autosuggest';
 import { IoIosRefresh } from "react-icons/io";
 
 const Punjab = () => {
-  const [location, setLocation] = useState(null);
+  const [location, setLocation] = useState({ latitude: null, longitude: null });
   const [address, setAddress] = useState('');
   const [deviceId, setDeviceId] = useState('');
   const [boothNo, setBoothNo] = useState('');
@@ -68,7 +68,7 @@ const Punjab = () => {
     //   draggable: true,
     // });
 
-    if ('geolocation' in navigator) {
+    /*if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           // Get latitude and longitude from the position object
@@ -111,7 +111,7 @@ const Punjab = () => {
       );
     } else {
       console.error('Geolocation is not supported by your browser.');
-    }
+    }*/
   }, []); // Empty dependency array to run the effect only once
 
 
